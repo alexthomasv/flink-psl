@@ -34,3 +34,8 @@ build-target/
 node_modules/
 __pycache__/
 *.pyc
+
+# Angular/Node caches
+**/.angular/
+**/.cache/
+**/node_modules/
