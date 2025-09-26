@@ -1,0 +1,36 @@
+# Maven/Java build output
+**/target/
+build-target/
+
+# Generated dist / build dirs (generic)
+**/build/
+
+# Binaries & archives
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Logs
+*.log
+
+# IDE metadata
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# OS cruft
+.DS_Store
+
+# Misc (rare here, but safe)
+node_modules/
+__pycache__/
+*.pyc
