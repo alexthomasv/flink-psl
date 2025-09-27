@@ -14,23 +14,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.psl.utils;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Java translation of the Rust ClientWorker.
  *
- * Concurrency model:
- * - Two bounded channels implemented with BlockingQueue:
- *   backpressure (checker -> generator) and generator (generator -> checker).
- * - Two tasks: checkerTask() and generatorTask().
+ * <p>Concurrency model: Two bounded channels implemented with BlockingQueue: backpressure (checker
+ * -> generator) and generator (generator -> checker).
  *
- * You can launch via ClientWorker.launch(...).
+ * <p>Two tasks: checkerTask() and generatorTask().
+ *
+ * <p>You can launch via ClientWorker.launch(...).
  */
 public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
 
@@ -74,12 +85,16 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
         }
     }
 
-    public enum SenderType { ANON }
+    /** Type of sender. */
+    public enum SenderType {
+        ANON
+    }
 
     /** Output of RPC receive. */
     public static final class ReceivedMessage {
         public final byte[] bytes;
         public final int length;
+
         public ReceivedMessage(byte[] bytes, int length) {
             this.bytes = bytes;
             this.length = length;
@@ -89,7 +104,7 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
     /** Your job config. */
     public static final class ClientConfig {
         public final WorkloadConfig workloadConfig;
-        public final NetConfig      netConfig;
+        public final NetConfig netConfig;
 
         public ClientConfig(WorkloadConfig w, NetConfig n) {
             this.workloadConfig = w;
@@ -105,6 +120,7 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
     public static final class WorkloadConfig {
         public final int durationSeconds;
         public final int maxConcurrentRequests;
+
         public WorkloadConfig(int durationSeconds, int maxConcurrentRequests) {
             this.durationSeconds = durationSeconds;
             this.maxConcurrentRequests = maxConcurrentRequests;
@@ -117,7 +133,7 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
         public final LinkedHashMap<String, Node> nodes; // nodeName -> Node
 
         public NetConfig(String name, LinkedHashMap<String, Node> nodes) {
-            this.name  = name;
+            this.name = name;
             this.nodes = nodes;
         }
 
@@ -126,9 +142,13 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
         }
     }
 
+    /** Node. */
     public static final class Node {
         public final String name;
-        public Node(String name) { this.name = name; }
+
+        public Node(String name) {
+            this.name = name;
+        }
     }
 
     /** What the generator yields per request. */
@@ -139,53 +159,83 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
     /** Generator output: the executor policy + tx bytes. */
     public static final class Generated {
         public final Executor executor;
-        public final byte[]   tx;
+        public final byte[] tx;
+
         public Generated(Executor executor, byte[] tx) {
             this.executor = executor;
             this.tx = tx;
         }
     }
 
-    public enum Executor { Leader, Any }
+    /** Executor type. */
+    public enum Executor {
+        Leader,
+        Any
+    }
 
     /** Stats channel payloads (replace with your own metric sinks). */
     public interface ClientWorkerStat {}
 
+    /** Latency of a Byzantine commit. */
     public static final class ByzCommitLatency implements ClientWorkerStat {
         public final Duration latency;
-        public ByzCommitLatency(Duration d) { this.latency = d; }
+
+        public ByzCommitLatency(Duration d) {
+            this.latency = d;
+        }
     }
 
+    /** Latency of a crash commit. */
     public static final class CrashCommitLatency implements ClientWorkerStat {
         public final Duration latency;
-        public CrashCommitLatency(Duration d) { this.latency = d; }
+
+        public CrashCommitLatency(Duration d) {
+            this.latency = d;
+        }
     }
 
+    /** Pending count of a Byzantine commit. */
     public static final class ByzCommitPending implements ClientWorkerStat {
         public final int workerId;
         public final int pendingCount;
+
         public ByzCommitPending(int workerId, int pendingCount) {
-            this.workerId = workerId; this.pendingCount = pendingCount;
+            this.workerId = workerId;
+            this.pendingCount = pendingCount;
         }
     }
 
     /** Simplified "sender" using a BlockingQueue. */
     public static final class Sender<T> {
         private final BlockingQueue<T> q;
-        Sender(BlockingQueue<T> q) { this.q = q; }
-        public void send(T v) throws InterruptedException { q.put(v); }
+
+        Sender(BlockingQueue<T> q) {
+            this.q = q;
+        }
+
+        public void send(T v) throws InterruptedException {
+            q.put(v);
+        }
     }
+
     /** Simplified "receiver" using a BlockingQueue. */
     public static final class Receiver<T> {
         private final BlockingQueue<T> q;
-        Receiver(BlockingQueue<T> q) { this.q = q; }
-        public T recv() throws InterruptedException { return q.take(); }
+
+        Receiver(BlockingQueue<T> q) {
+            this.q = q;
+        }
+
+        public T recv() throws InterruptedException {
+            return q.take();
+        }
     }
 
     /** Pair of sender/receiver, bounded capacity. */
     public static final class Channel<T> {
         public final Sender<T> sender;
         public final Receiver<T> receiver;
+
         public Channel(int capacity) {
             BlockingQueue<T> q = new ArrayBlockingQueue<>(capacity);
             this.sender = new Sender<>(q);
@@ -195,53 +245,92 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
 
     // --- Protobuf-like stubs: replace with your generated classes and decoding ---
 
+    /** Encoded payload. */
     public static final class ProtoPayload {
         public final byte[] encoded; // entire encoded payload
-        public ProtoPayload(byte[] encoded) { this.encoded = encoded; }
-    }
 
-    public static final class ProtoClientRequest {
-        public final byte[] tx;   // your message bytes
-        public final String origin;
-        public final byte[] sig;
-        public final long   clientTag;
-        public ProtoClientRequest(byte[] tx, String origin, byte[] sig, long clientTag) {
-            this.tx = tx; this.origin = origin; this.sig = sig; this.clientTag = clientTag;
+        public ProtoPayload(byte[] encoded) {
+            this.encoded = encoded;
         }
     }
 
+    /** Request from a client. */
+    public static final class ProtoClientRequest {
+        public final byte[] tx; // your message bytes
+        public final String origin;
+        public final byte[] sig;
+        public final long clientTag;
+
+        public ProtoClientRequest(byte[] tx, String origin, byte[] sig, long clientTag) {
+            this.tx = tx;
+            this.origin = origin;
+            this.sig = sig;
+            this.clientTag = clientTag;
+        }
+    }
+
+    /** Reply to a client request. */
     public static final class ProtoClientReply {
         public final Reply reply;
-        public ProtoClientReply(Reply reply) { this.reply = reply; }
 
+        public ProtoClientReply(Reply reply) {
+            this.reply = reply;
+        }
+
+        /** Leader message. */
         public static class LeaderMsg {
             public final String name;
             public final byte[] serializedNodeInfos;
+
             public LeaderMsg(String name, byte[] serializedNodeInfos) {
-                this.name = name; this.serializedNodeInfos = serializedNodeInfos;
+                this.name = name;
+                this.serializedNodeInfos = serializedNodeInfos;
             }
         }
 
+        /** Byzantine response. */
         public static class ByzResponse {
             public final long clientTag;
-            public ByzResponse(long clientTag) { this.clientTag = clientTag; }
+
+            public ByzResponse(long clientTag) {
+                this.clientTag = clientTag;
+            }
         }
 
+        /** Receipt. */
         public static class Receipt {
             public final List<ByzResponse> byzResponses;
-            public Receipt(List<ByzResponse> lst) { this.byzResponses = lst; }
+
+            public Receipt(List<ByzResponse> lst) {
+                this.byzResponses = lst;
+            }
         }
 
+        /** Reply. */
         public interface Reply {}
+
+        /** Receipt reply. */
         public static final class RReceipt implements Reply {
             public final Receipt r;
-            public RReceipt(Receipt r) { this.r = r; }
+
+            public RReceipt(Receipt r) {
+                this.r = r;
+            }
         }
+
+        /** Try again reply. */
         public static final class RTryAgain implements Reply {}
+
+        /** Tentative receipt reply. */
         public static final class RTentativeReceipt implements Reply {}
+
+        /** Leader reply. */
         public static final class RLeader implements Reply {
             public final LeaderMsg leader;
-            public RLeader(LeaderMsg m) { this.leader = m; }
+
+            public RLeader(LeaderMsg m) {
+                this.leader = m;
+            }
         }
 
         /** Decode from bytes -> reply. Replace with actual protobuf decoding. */
@@ -253,9 +342,14 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
 
     /** Deserialize node info list; replace with your real format. */
     public static final class NodeInfo {
+        /** Nodes. */
         public final LinkedHashMap<String, Node> nodes;
-        public NodeInfo(LinkedHashMap<String, Node> nodes) { this.nodes = nodes; }
 
+        public NodeInfo(LinkedHashMap<String, Node> nodes) {
+            this.nodes = nodes;
+        }
+
+        /** Deserialize node info list. */
         public static NodeInfo deserialize(byte[] raw) {
             // TODO: real deserialization
             return new NodeInfo(new LinkedHashMap<>());
@@ -270,7 +364,12 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
     private final int id;
     private final Sender<ClientWorkerStat> statTx;
 
-    public ClientWorker(ClientConfig config, PinnedClient client, Gen generator, int id, Sender<ClientWorkerStat> statTx) {
+    public ClientWorker(
+            ClientConfig config,
+            PinnedClient client,
+            Gen generator,
+            int id,
+            Sender<ClientWorkerStat> statTx) {
         this.config = config;
         this.client = client;
         this.generator = generator;
@@ -280,10 +379,14 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
 
     /** Handle to the running worker tasks. */
     public static final class WorkerHandle {
+        /** Checker future. */
         public final Future<?> checkerFuture;
+
         public final Future<?> generatorFuture;
+        /** Generator future. */
         public WorkerHandle(Future<?> c, Future<?> g) {
-            this.checkerFuture = c; this.generatorFuture = g;
+            this.checkerFuture = c;
+            this.generatorFuture = g;
         }
     }
 
@@ -306,12 +409,23 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
             throw new RuntimeException("Interrupted while pre-filling backpressure", ie);
         }
 
-        Future<?> checkerF = exec.submit(() ->
-            checkerTask(backpressure.sender, generatorCh.receiver, client, statTx, id)
-        );
-        Future<?> generatorF = exec.submit(() ->
-            generatorTask(generatorCh.sender, backpressure.receiver, backpressure.sender, id)
-        );
+        Future<?> checkerF =
+                exec.submit(
+                        () ->
+                                checkerTask(
+                                        backpressure.sender,
+                                        generatorCh.receiver,
+                                        client,
+                                        statTx,
+                                        id));
+        Future<?> generatorF =
+                exec.submit(
+                        () ->
+                                generatorTask(
+                                        generatorCh.sender,
+                                        backpressure.receiver,
+                                        backpressure.sender,
+                                        id));
 
         return new WorkerHandle(checkerF, generatorF);
     }
@@ -320,9 +434,10 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
 
     private static final class CheckerTask {
         final Instant startTime;
-        final String  waitFrom;
-        final long    id;
+        final String waitFrom;
+        final long id;
         final Executor executorMode;
+
         CheckerTask(Instant startTime, String waitFrom, long id, Executor mode) {
             this.startTime = startTime;
             this.waitFrom = waitFrom;
@@ -332,28 +447,32 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
     }
 
     private static final class OutstandingRequest {
-        long     id;
-        byte[]   payload;      // encoded ProtoPayload
+        long id;
+        byte[] payload; // encoded ProtoPayload
         Executor executorMode;
-        String   lastSentTo;
-        Instant  startTime;
+        String lastSentTo;
+        Instant startTime;
 
         CheckerTask toCheckerTask() {
             return new CheckerTask(startTime, lastSentTo, id, executorMode);
         }
     }
 
-    /** Either Success(requestId) or TryAgain(task, maybeNewNodeList, maybeNewLeaderIdx) */
+    /** Either Success(requestId) or TryAgain(task, maybeNewNodeList, maybeNewLeaderIdx). */
     private static final class CheckerResponse {
         final boolean success;
         final long successId;
 
         final CheckerTask tryTask;
-        final List<String> newNodeList;       // may be null
-        final Integer      newLeaderIndex;    // may be null
+        final List<String> newNodeList; // may be null
+        final Integer newLeaderIndex; // may be null
 
-        private CheckerResponse(boolean success, long successId,
-                                CheckerTask tryTask, List<String> newNodeList, Integer newLeaderIndex) {
+        private CheckerResponse(
+                boolean success,
+                long successId,
+                CheckerTask tryTask,
+                List<String> newNodeList,
+                Integer newLeaderIndex) {
             this.success = success;
             this.successId = successId;
             this.tryTask = tryTask;
@@ -372,11 +491,12 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
 
     // ----- Checker task -----
 
-    private void checkerTask(Sender<CheckerResponse> backpressureTx,
-                             Receiver<CheckerTask> generatorRx,
-                             PinnedClient client,
-                             Sender<ClientWorkerStat> statTx,
-                             int workerId) {
+    private void checkerTask(
+            Sender<CheckerResponse> backpressureTx,
+            Receiver<CheckerTask> generatorRx,
+            PinnedClient client,
+            Sender<ClientWorkerStat> statTx,
+            int workerId) {
         final Map<Long, CheckerTask> waitingForByz = new HashMap<>();
         final Map<Long, Instant> outOfOrderByz = new HashMap<>();
         String allegedLeader = "";
@@ -390,8 +510,9 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
                 break;
             }
 
-            if (req == null) break;
-
+            if (req == null) {
+                break;
+            }
             if (allegedLeader.isEmpty() && req.executorMode == Executor.Leader) {
                 allegedLeader = req.waitFrom;
             }
@@ -405,7 +526,11 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
             if (t != null) {
                 if (t.isAfter(req.startTime)) {
                     Duration lat = Duration.between(req.startTime, t);
-                    try { statTx.send(new ByzCommitLatency(lat)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                    try {
+                        statTx.send(new ByzCommitLatency(lat));
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
                 } else {
                     // log error: received before send-time
                 }
@@ -416,14 +541,22 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
             }
 
             if (req.executorMode == Executor.Leader) {
-                try { statTx.send(new ByzCommitPending(workerId, waitingForByz.size())); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    statTx.send(new ByzCommitPending(workerId, waitingForByz.size()));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
             }
 
             // Await reply for this request from req.waitFrom
             Optional<ReceivedMessage> maybeMsg = client.awaitReply(req.waitFrom);
             if (!maybeMsg.isPresent()) {
                 // ask generator to retry this same request
-                try { backpressureTx.send(CheckerResponse.tryAgain(req, null, null)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    backpressureTx.send(CheckerResponse.tryAgain(req, null, null));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
                 continue;
             }
 
@@ -431,32 +564,62 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
 
             Optional<ProtoClientReply> decoded = ProtoClientReply.decode(msg.bytes, msg.length);
             if (!decoded.isPresent()) {
-                try { backpressureTx.send(CheckerResponse.tryAgain(req, null, null)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    backpressureTx.send(CheckerResponse.tryAgain(req, null, null));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
                 continue;
             }
 
             ProtoClientReply reply = decoded.get();
             if (reply.reply instanceof ProtoClientReply.RReceipt) {
                 // success
-                try { backpressureTx.send(CheckerResponse.success(req.id)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-                try { statTx.send(new CrashCommitLatency(Duration.between(req.startTime, Instant.now()))); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    backpressureTx.send(CheckerResponse.success(req.id));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                try {
+                    statTx.send(
+                            new CrashCommitLatency(Duration.between(req.startTime, Instant.now())));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
 
                 ProtoClientReply.Receipt r = ((ProtoClientReply.RReceipt) reply.reply).r;
                 for (ProtoClientReply.ByzResponse br : r.byzResponses) {
                     CheckerTask tsk = waitingForByz.remove(br.clientTag);
                     if (tsk != null) {
                         Duration lat = Duration.between(tsk.startTime, Instant.now());
-                        try { statTx.send(new ByzCommitLatency(lat)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                        try {
+                            statTx.send(new ByzCommitLatency(lat));
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
                     } else {
                         outOfOrderByz.put(br.clientTag, Instant.now());
                     }
                 }
             } else if (reply.reply instanceof ProtoClientReply.RTryAgain) {
-                try { backpressureTx.send(CheckerResponse.tryAgain(req, null, null)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    backpressureTx.send(CheckerResponse.tryAgain(req, null, null));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
             } else if (reply.reply instanceof ProtoClientReply.RTentativeReceipt) {
                 // treat as success
-                try { backpressureTx.send(CheckerResponse.success(req.id)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-                try { statTx.send(new CrashCommitLatency(Duration.between(req.startTime, Instant.now()))); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    backpressureTx.send(CheckerResponse.success(req.id));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                try {
+                    statTx.send(
+                            new CrashCommitLatency(Duration.between(req.startTime, Instant.now())));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
             } else if (reply.reply instanceof ProtoClientReply.RLeader) {
                 ProtoClientReply.LeaderMsg lm = ((ProtoClientReply.RLeader) reply.reply).leader;
                 String currLeader = lm.name;
@@ -468,7 +631,11 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
                 int newLeaderIdx = nodeList.indexOf(currLeader);
                 if (newLeaderIdx < 0) {
                     // malformed: leader not in node list
-                    try { backpressureTx.send(CheckerResponse.tryAgain(req, null, null)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                    try {
+                        backpressureTx.send(CheckerResponse.tryAgain(req, null, null));
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
                     continue;
                 }
 
@@ -483,21 +650,30 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
                     allegedLeader = currLeader;
                 }
 
-                try { backpressureTx.send(CheckerResponse.tryAgain(req, nodeList, newLeaderIdx)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    backpressureTx.send(CheckerResponse.tryAgain(req, nodeList, newLeaderIdx));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
 
             } else {
                 // None => try again
-                try { backpressureTx.send(CheckerResponse.tryAgain(req, null, null)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    backpressureTx.send(CheckerResponse.tryAgain(req, null, null));
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
     }
 
     // ----- Generator task -----
 
-    private void generatorTask(Sender<CheckerTask> generatorTx,
-                               Receiver<CheckerResponse> backpressureRx,
-                               Sender<CheckerResponse> backpressureTx,
-                               int workerId) {
+    private void generatorTask(
+            Sender<CheckerTask> generatorTx,
+            Receiver<CheckerResponse> backpressureRx,
+            Sender<CheckerResponse> backpressureTx,
+            int workerId) {
         final Map<Long, OutstandingRequest> outstanding = new HashMap<>();
         long totalRequests = 0;
 
@@ -520,7 +696,8 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
         Instant globalStart = Instant.now();
         Duration runFor = Duration.ofSeconds(config.workloadConfig.durationSeconds);
 
-        while (Duration.between(globalStart, Instant.now()).compareTo(runFor) < 0 && !Thread.currentThread().isInterrupted()) {
+        while (Duration.between(globalStart, Instant.now()).compareTo(runFor) < 0
+                && !Thread.currentThread().isInterrupted()) {
             CheckerResponse signal;
             try {
                 signal = backpressureRx.recv();
@@ -528,8 +705,9 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
                 Thread.currentThread().interrupt();
                 break;
             }
-            if (signal == null) break;
-
+            if (signal == null) {
+                break;
+            }
             if (signal.success) {
                 // Consume success token, maybe remove old req id
                 if (signal.successId != 0) {
@@ -542,11 +720,22 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
                 req.id = totalRequests + 1;
                 req.executorMode = g.executor;
                 req.startTime = Instant.now();
-                req.payload = encodeClientRequest(new ProtoClientRequest(g.tx, myName, new byte[]{0x00}, req.id));
+                req.payload =
+                        encodeClientRequest(
+                                new ProtoClientRequest(g.tx, myName, new byte[] {0x00}, req.id));
                 // Send it
-                sendRequest(req, nodeList, currLeaderIdxHolder(currLeaderIdx), rrIdxHolder(currRRIdx), outstanding);
+                sendRequest(
+                        req,
+                        nodeList,
+                        currLeaderIdxHolder(currLeaderIdx),
+                        rrIdxHolder(currRRIdx),
+                        outstanding);
                 // Track + tell checker
-                try { generatorTx.send(req.toCheckerTask()); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try {
+                    generatorTx.send(req.toCheckerTask());
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
                 outstanding.put(req.id, req);
                 totalRequests += 1;
 
@@ -561,7 +750,9 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
                         sleep(backoffTime);
                     }
                     currComplaining++;
-                    if (currComplaining >= maxInflight) currComplaining = 0;
+                    if (currComplaining >= maxInflight) {
+                        currComplaining = 0;
+                    }
                 }
 
                 String oldLeaderName = nodeList.isEmpty() ? "" : nodeList.get(currLeaderIdx);
@@ -581,12 +772,25 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
                 OutstandingRequest req = outstanding.remove(task.id);
                 if (req == null) {
                     // checker told us to retry a request we no longer track -> release one token
-                    try { backpressureTx.send(CheckerResponse.success(0)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                    try {
+                        backpressureTx.send(CheckerResponse.success(0));
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
                     continue;
                 }
 
-                sendRequest(req, nodeList, currLeaderIdxHolder(currLeaderIdx), rrIdxHolder(currRRIdx), outstanding);
-                try { generatorTx.send(req.toCheckerTask()); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                sendRequest(
+                        req,
+                        nodeList,
+                        currLeaderIdxHolder(currLeaderIdx),
+                        rrIdxHolder(currRRIdx),
+                        outstanding);
+                try {
+                    generatorTx.send(req.toCheckerTask());
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
                 outstanding.put(req.id, req);
             }
         }
@@ -596,19 +800,25 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
     }
 
     // Small holders to pass primitive ints by reference
-    private static int[] currLeaderIdxHolder(int v) { return new int[]{v}; }
-    private static int[] rrIdxHolder(int v) { return new int[]{v}; }
+    private static int[] currLeaderIdxHolder(int v) {
+        return new int[] {v};
+    }
 
-    private void sendRequest(OutstandingRequest req,
-                             List<String> nodeList,
-                             int[] currLeaderIdx,
-                             int[] currRRIdx,
-                             Map<Long, OutstandingRequest> outstanding) {
+    private static int[] rrIdxHolder(int v) {
+        return new int[] {v};
+    }
+
+    private void sendRequest(
+            OutstandingRequest req,
+            List<String> nodeList,
+            int[] currLeaderIdx,
+            int[] currRRIdx,
+            Map<Long, OutstandingRequest> outstanding) {
         final byte[] buf = req.payload;
         final int len = buf.length;
 
         Executor mode = req.executorMode;
-        for (;) {
+        while (true) {
             boolean ok;
             if (mode == Executor.Leader) {
                 if (nodeList.isEmpty()) {
@@ -655,6 +865,6 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
     /** Replace with your protobuf encoding of client request into a payload. */
     private static byte[] encodeClientRequest(ProtoClientRequest req) {
         // TODO: real encode
-        return new byte[]{};
+        return new byte[] {};
     }
 }
