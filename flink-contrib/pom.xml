@@ -37,6 +37,7 @@ under the License.
 
 	<modules>
 		<module>flink-connector-wikiedits</module>
+		<module>psl-utils</module>
 	</modules>
 
 	<dependencies>
