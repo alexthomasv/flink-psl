@@ -641,7 +641,14 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
 
                 // Update client config (like Arc<...> write in Rust)
                 ClientConfig oldCfg = client.getConfigRef().get();
-                ClientConfig newCfg = oldCfg.copyWith(ni.nodes);
+
+                // first update the NetConfig with the new nodes:
+                NetConfig updatedNet = oldCfg.netConfig.copyWith(ni.nodes);
+
+                // then build a new ClientConfig using the updated NetConfig:
+                ClientConfig newCfg = oldCfg.copyWith(updatedNet);
+
+                client.getConfigRef().set(newCfg);
                 client.getConfigRef().set(newCfg);
 
                 if (!Objects.equals(allegedLeader, currLeader)) {
