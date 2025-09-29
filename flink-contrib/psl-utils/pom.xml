@@ -65,15 +65,58 @@
         <artifactId>protobuf-maven-plugin</artifactId>
         <version>${protobuf.plugin.version}</version>
         <configuration>
+          <!-- Use the right protoc for your platform -->
           <protocArtifact>
             com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}
           </protocArtifact>
+
+          <!-- Explicit inputs/outputs (important in multi-module builds) -->
+          <protoSourceRoot>${project.basedir}/src/main/proto</protoSourceRoot>
+          <outputDirectory>${project.build.directory}/generated-sources/protobuf/java</outputDirectory>
+
+          <!-- Make the generated code visible to the Java compiler -->
+          <addCompileSourceRoot>true</addCompileSourceRoot>
+          <addTestCompileSourceRoot>true</addTestCompileSourceRoot>
+
+          <!-- Clean stale outputs if proto changes -->
+          <clearOutputDirectory>true</clearOutputDirectory>
+          <checkStaleness>true</checkStaleness>
         </configuration>
         <executions>
           <execution>
+            <id>protoc-compile</id>
+            <phase>generate-sources</phase>
             <goals>
               <goal>compile</goal>
             </goals>
+          </execution>
+          <execution>
+            <id>protoc-test-compile</id>
+            <phase>generate-test-sources</phase>
+            <goals>
+              <goal>test-compile</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- (Optional) Belt-and-suspenders: add generated dir to sources explicitly -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>3.2.0</version>
+        <executions>
+          <execution>
+            <id>add-protobuf-sources</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${project.build.directory}/generated-sources/protobuf/java</source>
+              </sources>
+            </configuration>
           </execution>
         </executions>
       </plugin>

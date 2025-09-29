@@ -1,0 +1,51 @@
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to you under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- Inherit versions / plugin management from Flink parent -->
+  <parent>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-parent</artifactId>
+    <version>1.16.3</version>
+    <!-- three levels up from flink-state-backends/flink-statebackend-psl -->
+    <relativePath>../../..</relativePath>
+  </parent>
+
+  <artifactId>flink-statebackend-psl</artifactId>
+  <name>Flink : State Backend : PSL</name>
+  <packaging>jar</packaging>
+
+  <dependencies>
+    <!-- Flink runtime/core are provided by the cluster at runtime -->
+    <dependency>
+      <groupId>org.apache.flink</groupId>
+      <artifactId>flink-runtime</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.flink</groupId>
+      <artifactId>flink-core</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Your utils module that contains KVSClient -->
+    <dependency>
+      <groupId>org.apache.flink</groupId>
+      <artifactId>psl-utils</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+</project>

@@ -15,178 +15,258 @@
  * limitations under the License.
  */
 
- package com.psl.utils;
+package com.psl.utils;
 
- import java.nio.charset.StandardCharsets;
- import java.time.Duration;
- import java.util.Objects;
- import java.util.concurrent.CompletableFuture;
- import java.util.concurrent.ExecutorService;
- import java.util.concurrent.TimeUnit;
- 
- /**
-  * KVSClient wraps a {@link ClientWorker} to provide a simple imperative KV API.
-  *
-  * <p>It launches the worker (generator + checker tasks) and exposes {@code get}/{@code put}
-  * methods. Under the hood, it relies on {@code ClientWorker}'s public async APIs:
-  * <ul>
-  *   <li>{@code CompletableFuture<Boolean> put(byte[] key, byte[] value)}</li>
-  *   <li>{@code CompletableFuture<byte[]> get(byte[] key, boolean linearizable)}</li>
-  * </ul>
-  *
-  * <p>Those methods reuse checker for waiting/decoding, and the existing backpressure,
-  * retries, and leader redirects. No listener/callback plumbing is required here.
-  */
- public final class KVSClient {
- 
-     /** The underlying worker handling send/await/retry/redirect. */
-     private final ClientWorker<?> worker;
- 
-     /** Executor used to run the worker tasks. */
-     private final ExecutorService exec;
- 
-     /** Whether reads should be linearizable (Leader + crash/byz-commit) or unlogged (on_receive). */
-     private final boolean linearizableReads;
- 
-     /** Optional default timeout for blocking helpers. */
-     private final Duration defaultTimeout;
- 
-     /** Worker handle (returned by launch), kept for lifecycle management. */
-     private ClientWorker.WorkerHandle handle;
- 
-     /**
-      * Construct a KVSClient around an existing, configured {@link ClientWorker}.
-      *
-      * @param worker the worker (already constructed with config + pinned client + stat channel)
-      * @param exec executor service on which the worker will be launched
-      * @param linearizableReads true for linearizable reads (Leader + commit), false for unlogged reads (on_receive)
-      * @param defaultTimeout default timeout for blocking helpers (can be null; then no default)
-      */
-     public KVSClient(
-             ClientWorker<?> worker,
-             ExecutorService exec,
-             boolean linearizableReads,
-             Duration defaultTimeout) {
-         this.worker = Objects.requireNonNull(worker, "worker");
-         this.exec = Objects.requireNonNull(exec, "exec");
-         this.linearizableReads = linearizableReads;
-         this.defaultTimeout = defaultTimeout;
-     }
- 
-     /**
-      * Launch the underlying worker (spawns checker + generator tasks).
-      * Safe to call once; subsequent calls are no-ops.
-      */
-     public synchronized void start() {
-         if (this.handle != null) {
-             return;
-         }
-         this.handle = worker.launch(exec);
-     }
- 
-     /**
-      * Stop / interrupt worker tasks by shutting down the executor.
-      * Caller owns the executor; this is a convenience that calls {@code shutdownNow()}.
-      */
-     public void shutdownNow() {
-         exec.shutdownNow();
-     }
- 
-     // --------------------------------------------------------------------------------------------
-     // Async KV API (preferred): returns CompletableFuture
-     // --------------------------------------------------------------------------------------------
- 
-     /**
-      * Async PUT; returns a future that completes to {@code true} on success.
-      * The request is routed to the leader and executed at crash-commit (or byz if you changed it).
-      */
-     public CompletableFuture<Boolean> put(byte[] key, byte[] value) throws InterruptedException {
-         Objects.requireNonNull(key, "key");
-         Objects.requireNonNull(value, "value");
-         return worker.put(key, value);
-     }
- 
-     /**
-      * Async GET; returns a future that completes to the value (or {@code null} if not found).
-      * Uses {@link #linearizableReads} to choose routing/phase.
-      */
-     public CompletableFuture<byte[]> get(byte[] key) throws InterruptedException {
-         Objects.requireNonNull(key, "key");
-         return worker.get(key, linearizableReads);
-     }
- 
-     // Convenience overloads for String keys/values
-     public CompletableFuture<Boolean> put(String key, String value) throws InterruptedException {
-         return put(bytes(key), bytes(value));
-     }
- 
-     public CompletableFuture<byte[]> get(String key) throws InterruptedException {
-         return get(bytes(key));
-     }
- 
-     // --------------------------------------------------------------------------------------------
-     // Blocking helpers (optional): convenience wrappers with timeout
-     // --------------------------------------------------------------------------------------------
- 
-     /**
-      * Blocking PUT with timeout.
-      *
-      * @return true on success
-      */
-     public boolean putBlocking(byte[] key, byte[] value, long timeout, TimeUnit unit) throws Exception {
-         return put(key, value).get(timeout, unit);
-     }
- 
-     /**
-      * Blocking GET with timeout.
-      *
-      * @return value bytes, or {@code null} if not found
-      */
-     public byte[] getBlocking(byte[] key, long timeout, TimeUnit unit) throws Exception {
-         return get(key).get(timeout, unit);
-     }
- 
-     /**
-      * Blocking PUT using the client's default timeout.
-      */
-     public boolean putBlocking(byte[] key, byte[] value) throws Exception {
-         ensureDefaultTimeout();
-         return putBlocking(key, value, defaultTimeout.toMillis(), TimeUnit.MILLISECONDS);
-     }
- 
-     /**
-      * Blocking GET using the client's default timeout.
-      */
-     public byte[] getBlocking(byte[] key) throws Exception {
-         ensureDefaultTimeout();
-         return getBlocking(key, defaultTimeout.toMillis(), TimeUnit.MILLISECONDS);
-     }
- 
-     public boolean putBlocking(String key, String value, long timeout, TimeUnit unit) throws Exception {
-         return putBlocking(bytes(key), bytes(value), timeout, unit);
-     }
- 
-     public byte[] getBlocking(String key, long timeout, TimeUnit unit) throws Exception {
-         return getBlocking(bytes(key), timeout, unit);
-     }
- 
-     public boolean putBlocking(String key, String value) throws Exception {
-         return putBlocking(bytes(key), bytes(value));
-     }
- 
-     public byte[] getBlocking(String key) throws Exception {
-         return getBlocking(bytes(key));
-     }
- 
-     // --------------------------------------------------------------------------------------------
- 
-     private static byte[] bytes(String s) {
-         return s.getBytes(StandardCharsets.UTF_8);
-     }
- 
-     private void ensureDefaultTimeout() {
-         if (defaultTimeout == null) {
-             throw new IllegalStateException("No defaultTimeout configured; use the timeout overloads.");
-         }
-     }
- }
+import com.google.protobuf.ByteString;
+import com.google.protobuf.CodedInputStream;
+import proto.client.Client;
+import proto.execution.Execution;
+import proto.rpc.Rpc;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * Blocking KV client that builds ProtoTransaction, wraps it into ProtoClientRequest and
+ * ProtoPayload, sends via PinnedClient and waits for ProtoClientReply. Handles TRY_AGAIN and LEADER
+ * redirects.
+ */
+public final class KVSClient {
+
+    private final ClientWorker.PinnedClient client;
+    private final AtomicLong tagSeq = new AtomicLong(1L);
+
+    /** Max attempts per call. Tune as you like. */
+    private static final int MAX_ATTEMPTS = 64;
+
+    private static final Duration BACKOFF = Duration.ofMillis(200);
+
+    public KVSClient(ClientWorker.PinnedClient client) {
+        this.client = client;
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    // Public API
+    // -----------------------------------------------------------------------------------------------
+
+    /** Linearizable write: write(key,value) on crash-commit to leader. */
+    public void put(byte[] key, byte[] value) {
+        Execution.ProtoTransaction tx = buildWriteCrashCommitTx(key, value);
+        // writes go to leader
+        sendRoundTrip(tx, /*requireLeader=*/ true);
+    }
+
+    /**
+     * Read value for key.
+     *
+     * @param linearizable true -> crash-commit read to leader; false -> on_receive read to any node
+     * @return value bytes or null if none present
+     */
+    public byte[] get(byte[] key, boolean linearizable) {
+        final Execution.ProtoTransaction tx =
+                linearizable ? buildReadCrashCommitTx(key) : buildReadOnReceiveTx(key);
+        final Client.ProtoClientReply reply = sendRoundTrip(tx, /*requireLeader=*/ linearizable);
+        if (reply.hasReceipt() && reply.getReceipt().hasResults()) {
+            Execution.ProtoTransactionResult tr = reply.getReceipt().getResults();
+            if (tr.getResultCount() > 0) {
+                Execution.ProtoTransactionOpResult opRes = tr.getResult(0);
+                if (opRes.getValuesCount() > 0) {
+                    return opRes.getValues(0).toByteArray();
+                }
+            }
+        }
+        // Tentative receipt or receipt w/o values -> treat as not found
+        return null;
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    // Round-trip core
+    // -----------------------------------------------------------------------------------------------
+
+    private Client.ProtoClientReply sendRoundTrip(
+            Execution.ProtoTransaction tx, boolean requireLeader) {
+
+        ClientWorker.ClientConfig cfg = client.getConfigRef().get();
+        final String origin = cfg.netConfig.name;
+        final long tag = tagSeq.getAndIncrement();
+
+        Client.ProtoClientRequest req =
+                Client.ProtoClientRequest.newBuilder()
+                        .setTx(tx)
+                        .setOrigin(origin)
+                        // TODO: add real signature if you wire keystore
+                        .setSig(ByteString.copyFrom(new byte[] {0}))
+                        .setClientTag(tag)
+                        .build();
+
+        Rpc.ProtoPayload payload = Rpc.ProtoPayload.newBuilder().setClientRequest(req).build();
+        final byte[] buf = payload.toByteArray();
+        final int len = buf.length;
+
+        // local routing view (refresh on redirects/try-again)
+        List<String> nodes = new ArrayList<>(cfg.netConfig.nodes.keySet());
+        Collections.sort(nodes);
+
+        int leaderIdx = 0; // server corrects us if wrong
+        int rrIdx = 0;
+
+        for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            if (nodes.isEmpty()) {
+                sleep(BACKOFF);
+                // refresh from live config (maybe updated by other calls)
+                ClientWorker.ClientConfig cur = client.getConfigRef().get();
+                nodes = new ArrayList<>(cur.netConfig.nodes.keySet());
+                Collections.sort(nodes);
+                continue;
+            }
+
+            final String target =
+                    requireLeader
+                            ? nodes.get(Math.floorMod(leaderIdx, nodes.size()))
+                            : nodes.get(Math.floorMod(rrIdx++, nodes.size()));
+
+            boolean sent =
+                    client.send(
+                            target,
+                            new ClientWorker.MessageRef(buf, len, ClientWorker.SenderType.ANON));
+            if (!sent) {
+                if (requireLeader) {
+                    leaderIdx = (leaderIdx + 1) % Math.max(nodes.size(), 1);
+                }
+                sleep(BACKOFF);
+                continue;
+            }
+
+            Optional<ClientWorker.ReceivedMessage> maybe = client.awaitReply(target);
+            if (!maybe.isPresent()) {
+                if (requireLeader) {
+                    leaderIdx = (leaderIdx + 1) % Math.max(nodes.size(), 1);
+                }
+                sleep(BACKOFF);
+                continue;
+            }
+
+            ClientWorker.ReceivedMessage rm = maybe.get();
+            final Client.ProtoClientReply reply;
+            try {
+                CodedInputStream cis = CodedInputStream.newInstance(rm.bytes, 0, rm.length);
+                reply = Client.ProtoClientReply.parseFrom(cis);
+            } catch (Exception parse) {
+                sleep(BACKOFF);
+                continue;
+            }
+
+            if (reply.hasReceipt() || reply.hasTentativeReceipt()) {
+                return reply;
+            }
+
+            if (reply.hasTryAgain()) {
+                String s = reply.getTryAgain().getSerializedNodeInfos();
+                if (s != null && !s.isEmpty()) {
+                    applyNodeUpdate(s);
+                    ClientWorker.ClientConfig cur = client.getConfigRef().get();
+                    nodes = new ArrayList<>(cur.netConfig.nodes.keySet());
+                    Collections.sort(nodes);
+                }
+                sleep(BACKOFF);
+                continue;
+            }
+
+            if (reply.hasLeader()) {
+                String leaderName = reply.getLeader().getName();
+                String s = reply.getLeader().getSerializedNodeInfos();
+                if (s != null && !s.isEmpty()) {
+                    applyNodeUpdate(s);
+                }
+                ClientWorker.ClientConfig cur = client.getConfigRef().get();
+                nodes = new ArrayList<>(cur.netConfig.nodes.keySet());
+                Collections.sort(nodes);
+                int idx = nodes.indexOf(leaderName);
+                if (idx >= 0) {
+                    leaderIdx = idx;
+                }
+                // retry immediately
+                continue;
+            }
+
+            // REPLY_NOT_SET or unknown -> retry
+            sleep(BACKOFF);
+        }
+
+        throw new RuntimeException("KVSClient: exceeded max attempts without success");
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    // Protobuf tx builders
+    // -----------------------------------------------------------------------------------------------
+
+    private static Execution.ProtoTransaction buildReadOnReceiveTx(byte[] key) {
+        Execution.ProtoTransactionOp read =
+                Execution.ProtoTransactionOp.newBuilder()
+                        .setOpType(Execution.ProtoTransactionOpType.READ)
+                        .addOperands(ByteString.copyFrom(key))
+                        .build();
+        Execution.ProtoTransactionPhase onReceive =
+                Execution.ProtoTransactionPhase.newBuilder().addOps(read).build();
+        return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
+    }
+
+    private static Execution.ProtoTransaction buildReadCrashCommitTx(byte[] key) {
+        Execution.ProtoTransactionOp read =
+                Execution.ProtoTransactionOp.newBuilder()
+                        .setOpType(Execution.ProtoTransactionOpType.READ)
+                        .addOperands(ByteString.copyFrom(key))
+                        .build();
+        Execution.ProtoTransactionPhase onCrash =
+                Execution.ProtoTransactionPhase.newBuilder().addOps(read).build();
+        return Execution.ProtoTransaction.newBuilder().setOnCrashCommit(onCrash).build();
+    }
+
+    private static Execution.ProtoTransaction buildWriteCrashCommitTx(byte[] key, byte[] value) {
+        Execution.ProtoTransactionOp write =
+                Execution.ProtoTransactionOp.newBuilder()
+                        .setOpType(Execution.ProtoTransactionOpType.WRITE)
+                        .addOperands(ByteString.copyFrom(key))
+                        .addOperands(ByteString.copyFrom(value))
+                        .build();
+        Execution.ProtoTransactionPhase onCrash =
+                Execution.ProtoTransactionPhase.newBuilder().addOps(write).build();
+        return Execution.ProtoTransaction.newBuilder().setOnCrashCommit(onCrash).build();
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    // Topology helpers
+    // -----------------------------------------------------------------------------------------------
+
+    private void applyNodeUpdate(String serializedNodeInfos) {
+        try {
+            ClientWorker.NodeInfo ni =
+                    ClientWorker.NodeInfo.deserialize(
+                            serializedNodeInfos.getBytes(StandardCharsets.UTF_8));
+            if (ni == null || ni.nodes == null || ni.nodes.isEmpty()) {
+                return;
+            }
+            ClientWorker.ClientConfig oldCfg = client.getConfigRef().get();
+            LinkedHashMap<String, ClientWorker.Node> nodes = new LinkedHashMap<>(ni.nodes);
+            ClientWorker.NetConfig updated = oldCfg.netConfig.copyWith(nodes);
+            ClientWorker.ClientConfig newer = oldCfg.copyWith(updated);
+            client.getConfigRef().set(newer);
+        } catch (Exception ignore) {
+            // keep current topology if parsing fails
+        }
+    }
+
+    private static void sleep(Duration d) {
+        try {
+            Thread.sleep(Math.max(1L, d.toMillis()));
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+}
