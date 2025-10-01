@@ -36,6 +36,8 @@ import org.apache.flink.runtime.state.heap.InternalKeyContext;
 import org.apache.flink.runtime.state.metrics.LatencyTrackingStateConfig;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 
+import com.psl.utils.KVSClient;
+
 import javax.annotation.Nonnull;
 
 import java.util.concurrent.RunnableFuture;
@@ -47,6 +49,9 @@ import java.util.stream.Stream;
  */
 public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 
+    private final KVSClient kvs;
+    private final boolean linearizableReads;
+
     public PslKeyedStateBackend(
             TaskKvStateRegistry kvStateRegistry,
             TypeSerializer<K> keySerializer,
@@ -56,7 +61,9 @@ public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> 
             LatencyTrackingStateConfig latencyTrackingStateConfig,
             CloseableRegistry cancelStreamRegistry,
             StreamCompressionDecorator keyGroupCompressionDecorator,
-            InternalKeyContext<K> keyContext) {
+            InternalKeyContext<K> keyContext,
+            KVSClient kvs,
+            boolean linearizableReads) {
         // TODO: keep references for later when you implement your backend.
         super(
                 kvStateRegistry,
@@ -68,6 +75,8 @@ public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> 
                 cancelStreamRegistry,
                 keyGroupCompressionDecorator,
                 keyContext);
+        this.kvs = kvs;
+        this.linearizableReads = linearizableReads;
     }
 
     public void close() {
@@ -133,7 +142,7 @@ public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> 
                     ((ValueStateDescriptor<SV>) stateDesc).getSerializer();
 
             // Adapt your KVSClient to ByteKv here:
-            ByteKv kv = /* new YourKvsAdapter(kvsClient) */ null;
+            ByteKv kv = new KvsByteKvAdapter(this.kvs, this.linearizableReads);
 
             PslValueState<K, N, SV> vs =
                     new PslValueState<>(

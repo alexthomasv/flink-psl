@@ -26,6 +26,8 @@ import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 
+import com.psl.utils.KVSClient;
+
 import java.io.IOException;
 import java.util.Collection;
 
@@ -38,9 +40,11 @@ import java.util.Collection;
 public final class PslStateBackend implements StateBackend {
 
     private final boolean linearizableReads;
+    private final KVSClient kvs;
 
-    public PslStateBackend(boolean linearizableReads) {
+    public PslStateBackend(boolean linearizableReads, KVSClient kvs) {
         this.linearizableReads = linearizableReads;
+        this.kvs = kvs;
     }
 
     @Override
@@ -86,7 +90,9 @@ public final class PslStateBackend implements StateBackend {
                 latencyCfg,
                 cancelStreamRegistry,
                 compression,
-                keyContext);
+                keyContext,
+                this.kvs,
+                this.linearizableReads);
     }
 
     @Override
