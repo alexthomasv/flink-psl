@@ -11,6 +11,7 @@
 
 package org.apache.flink.state.psl;
 
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.fs.CloseableRegistry;
@@ -22,6 +23,7 @@ import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.OperatorStateBackend;
 import org.apache.flink.runtime.state.StateBackend;
+import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 
 import java.io.IOException;
@@ -56,7 +58,35 @@ public final class PslStateBackend implements StateBackend {
             CloseableRegistry cancelStreamRegistry)
             throws IOException {
 
-        throw new UnsupportedOperationException("PSL keyed state backend not implemented yet.");
+        // (1) Basic wiring / defaults
+        final ClassLoader userCl = env.getUserCodeClassLoader().asClassLoader();
+        final ExecutionConfig execCfg = env.getExecutionConfig();
+
+        // Latency tracking off for now (you can enable/sampling later)
+        final org.apache.flink.runtime.state.metrics.LatencyTrackingStateConfig latencyCfg =
+                org.apache.flink.runtime.state.metrics.LatencyTrackingStateConfig.newBuilder()
+                        .setEnabled(false)
+                        .build();
+
+        // No compression for snapshot streams (you can add later)
+        final org.apache.flink.runtime.state.StreamCompressionDecorator compression =
+                UncompressedStreamCompressionDecorator.INSTANCE;
+
+        // Key context (provides current key, key-group, ranges)
+        final org.apache.flink.runtime.state.heap.InternalKeyContext<K> keyContext =
+                new org.apache.flink.runtime.state.heap.InternalKeyContextImpl<>(
+                        keyGroupRange, numberOfKeyGroups);
+
+        return new PslKeyedStateBackend<>(
+                kvStateRegistry,
+                keySerializer,
+                userCl,
+                execCfg,
+                ttlTimeProvider,
+                latencyCfg,
+                cancelStreamRegistry,
+                compression,
+                keyContext);
     }
 
     @Override
