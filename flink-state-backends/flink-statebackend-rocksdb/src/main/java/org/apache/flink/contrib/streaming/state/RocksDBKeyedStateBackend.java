@@ -68,6 +68,7 @@ import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.ResourceGuard;
 import org.apache.flink.util.StateMigrationException;
 
+import com.psl.utils.KVSClient;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.ReadOptions;
@@ -254,6 +255,8 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
      */
     protected final RocksDB db;
 
+    protected final KVSClient pslClient;
+
     // mark whether this backend is already disposed and prevent duplicate disposing
     private boolean disposed = false;
 
@@ -270,6 +273,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
             TtlTimeProvider ttlTimeProvider,
             LatencyTrackingStateConfig latencyTrackingStateConfig,
             RocksDB db,
+            KVSClient pslClient,
             LinkedHashMap<String, RocksDbKvStateInfo> kvStateInformation,
             Map<String, HeapPriorityQueueSnapshotRestoreWrapper<?>> registeredPQStates,
             int keyGroupPrefixBytes,
@@ -314,6 +318,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
         this.readOptions = optionsContainer.getReadOptions();
         this.writeBatchSize = writeBatchSize;
         this.db = db;
+        this.pslClient = pslClient;
         this.rocksDBResourceGuard = rocksDBResourceGuard;
         this.checkpointSnapshotStrategy = checkpointSnapshotStrategy;
         this.writeBatchWrapper = writeBatchWrapper;
@@ -761,6 +766,39 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
         }
 
         return restoredKvStateMetaInfo;
+    }
+
+    public void put(
+            ColumnFamilyHandle columnFamily, WriteOptions writeOptions, byte[] key, byte[] value)
+            throws RocksDBException {
+        db.put(columnFamily, writeOptions, key, value);
+        try {
+            pslClient.put(key, value);
+        } catch (java.io.IOException e) {
+            throw new FlinkRuntimeException("PSL put failed", e);
+        }
+    }
+
+    public byte[] get(ColumnFamilyHandle columnFamily, byte[] key) throws RocksDBException {
+        byte[] value = db.get(columnFamily, key);
+
+        try {
+            byte[] pslValue = pslClient.get(key, /*linearizable=*/ true);
+            return pslValue; // authoritative from PSL; adjust if you want local fallback
+        } catch (java.io.IOException e) {
+            throw new FlinkRuntimeException("PSL get failed", e);
+        }
+    }
+
+    public void delete(ColumnFamilyHandle columnFamily, WriteOptions writeOptions, byte[] key)
+            throws RocksDBException {
+        db.delete(columnFamily, writeOptions, key);
+
+        try {
+            pslClient.put(key, new byte[0]);
+        } catch (java.io.IOException e) {
+            throw new FlinkRuntimeException("PSL delete failed", e);
+        }
     }
 
     /**

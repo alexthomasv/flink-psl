@@ -32,11 +32,14 @@ import org.apache.flink.runtime.state.SnapshotResult;
 import org.apache.flink.runtime.state.StateSnapshotTransformer.StateSnapshotTransformFactory;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
 import org.apache.flink.runtime.state.heap.HeapPriorityQueueElement;
+import org.apache.flink.runtime.state.heap.HeapPriorityQueueSetFactory;
 import org.apache.flink.runtime.state.heap.InternalKeyContext;
 import org.apache.flink.runtime.state.metrics.LatencyTrackingStateConfig;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 
 import com.psl.utils.KVSClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 
@@ -49,8 +52,11 @@ import java.util.stream.Stream;
  */
 public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 
+    private static final Logger LOG = LoggerFactory.getLogger(PslKeyedStateBackend.class);
+
     private final KVSClient kvs;
     private final boolean linearizableReads;
+    private final HeapPriorityQueueSetFactory pqSetFactory;
 
     public PslKeyedStateBackend(
             TaskKvStateRegistry kvStateRegistry,
@@ -77,6 +83,15 @@ public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> 
                 keyContext);
         this.kvs = kvs;
         this.linearizableReads = linearizableReads;
+
+        // Construct the heap-backed PQ factory using key-group info from the key context.
+        // Pick a reasonable minimum capacity to reduce early resizes.
+        final int minimumCapacity = 128; // tweak if you like
+        this.pqSetFactory =
+                new HeapPriorityQueueSetFactory(
+                        keyContext.getKeyGroupRange(),
+                        keyContext.getNumberOfKeyGroups(),
+                        minimumCapacity);
     }
 
     public void close() {
@@ -125,7 +140,7 @@ public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> 
             KeyGroupedInternalPriorityQueue<T> create(
                     @Nonnull String stateName,
                     @Nonnull TypeSerializer<T> byteOrderedElementSerializer) {
-        throw new UnsupportedOperationException("Not implemented for placeholder backend");
+        return pqSetFactory.create(stateName, byteOrderedElementSerializer);
     }
 
     @Override
@@ -136,8 +151,17 @@ public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> 
             @Nonnull StateSnapshotTransformFactory<SEV> snapshotTransformFactory)
             throws Exception {
 
+        final String stateName = stateDesc.getName();
+        LOG.debug(
+                "createOrUpdateInternalState called: stateName={}, descClass={}, namespaceSer={}, valueSer={}",
+                stateName,
+                stateDesc.getClass().getName(),
+                namespaceSerializer.getClass().getName(),
+                stateDesc.getSerializer() == null
+                        ? "null"
+                        : stateDesc.getSerializer().getClass().getName());
+
         if (stateDesc instanceof ValueStateDescriptor<?>) {
-            final String stateName = stateDesc.getName();
             final TypeSerializer<SV> valSer =
                     ((ValueStateDescriptor<SV>) stateDesc).getSerializer();
 
@@ -150,6 +174,12 @@ public final class PslKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> 
 
             return (IS) vs;
         }
+
+        LOG.error(
+                "Failed to create/update internal state: stateName={}, descClass={}, msg={}",
+                stateName,
+                stateDesc.getClass().getName(),
+                "Only ValueState supported in prototype.");
 
         throw new UnsupportedOperationException("Only ValueState supported in prototype.");
     }

@@ -56,7 +56,7 @@ abstract class AbstractRocksDBAppendingState<K, N, IN, SV, OUT>
 
     SV getInternal(byte[] key) {
         try {
-            byte[] valueBytes = backend.db.get(columnFamily, key);
+            byte[] valueBytes = backend.get(columnFamily, key);
             if (valueBytes == null) {
                 return null;
             }
@@ -75,7 +75,7 @@ abstract class AbstractRocksDBAppendingState<K, N, IN, SV, OUT>
     void updateInternal(byte[] key, SV valueToStore) {
         try {
             // write the new value to RocksDB
-            backend.db.put(columnFamily, writeOptions, key, getValueBytes(valueToStore));
+            backend.put(columnFamily, writeOptions, key, getValueBytes(valueToStore));
         } catch (RocksDBException e) {
             throw new FlinkRuntimeException("Error while adding value to RocksDB", e);
         }

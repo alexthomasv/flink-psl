@@ -23,250 +23,189 @@ import proto.client.Client;
 import proto.execution.Execution;
 import proto.rpc.Rpc;
 
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Optional;
+import java.io.IOException;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Blocking KV client that builds ProtoTransaction, wraps it into ProtoClientRequest and
- * ProtoPayload, sends via PinnedClient and waits for ProtoClientReply. Handles TRY_AGAIN and LEADER
- * redirects.
+ * Blocking KV client that uses {@link PinnedClient} as the transport.
+ *
+ * <p>Builds {@code ProtoTransaction} and wraps it into {@code ProtoClientRequest}/{@code
+ * ProtoPayload}, sends via {@link PinnedClient#sendAndAwaitReply(String, PinnedClient.MessageRef)}
+ * and parses {@code ProtoClientReply}. This version targets a specific node (either a default node
+ * provided at construction or passed per call) and does not implement redirect/backoff logic.
  */
 public final class KVSClient {
 
-    private final ClientWorker.PinnedClient client;
+    private final PinnedClient transport;
+    private final String defaultNode;
     private final AtomicLong tagSeq = new AtomicLong(1L);
 
-    /** Max attempts per call. Tune as you like. */
-    private static final int MAX_ATTEMPTS = 64;
-
-    private static final Duration BACKOFF = Duration.ofMillis(200);
-
-    public KVSClient(ClientWorker.PinnedClient client) {
-        this.client = client;
-    }
-
-    // -----------------------------------------------------------------------------------------------
-    // Public API
-    // -----------------------------------------------------------------------------------------------
-
-    /** Linearizable write: write(key,value) on crash-commit to leader. */
-    public void put(byte[] key, byte[] value) {
-        Execution.ProtoTransaction tx = buildWriteCrashCommitTx(key, value);
-        // writes go to leader
-        sendRoundTrip(tx, /*requireLeader=*/ true);
+    /**
+     * Creates a KV client with a fixed default node to contact.
+     *
+     * @param transport initialized {@link PinnedClient}
+     * @param defaultNode logical node name present in the transport's configuration (nullable if
+     *     you plan to pass the node each call)
+     */
+    public KVSClient(final PinnedClient transport, final String defaultNode) {
+        this.transport = Objects.requireNonNull(transport, "transport");
+        this.defaultNode = defaultNode;
     }
 
     /**
-     * Read value for key.
+     * Creates a KV client without a default node; you must pass the node per call.
      *
-     * @param linearizable true -> crash-commit read to leader; false -> on_receive read to any node
-     * @return value bytes or null if none present
+     * @param transport initialized {@link PinnedClient}
      */
-    public byte[] get(byte[] key, boolean linearizable) {
+    public KVSClient(final PinnedClient transport) {
+        this(transport, null);
+    }
+
+    // -------------------------------------------------------------------------------------------------
+    // Public API (default-node variants)
+    // -------------------------------------------------------------------------------------------------
+
+    /**
+     * PUT using the configured default node.
+     *
+     * @param key key bytes
+     * @param value value bytes
+     * @throws IOException on transport or parse error
+     * @throws IllegalStateException if no default node was provided
+     */
+    public void put(final byte[] key, final byte[] value) throws IOException {
+        ensureDefaultNode();
+        put(defaultNode, key, value);
+    }
+
+    /**
+     * GET using the configured default node.
+     *
+     * @param key key bytes
+     * @param linearizable true for crash-commit (leader) read; false for on-receive (any) read
+     * @return value bytes or {@code null} if missing
+     * @throws IOException on transport or parse error
+     * @throws IllegalStateException if no default node was provided
+     */
+    public byte[] get(final byte[] key, final boolean linearizable) throws IOException {
+        ensureDefaultNode();
+        return get(defaultNode, key, linearizable);
+    }
+
+    // -------------------------------------------------------------------------------------------------
+    // Public API (explicit node)
+    // -------------------------------------------------------------------------------------------------
+
+    /**
+     * Linearizable write (crash-commit) to a specific node.
+     *
+     * @param node logical node name
+     * @param key key bytes
+     * @param value value bytes
+     * @throws IOException on transport or parse error
+     */
+    public void put(final String node, final byte[] key, final byte[] value) throws IOException {
+        final Execution.ProtoTransaction tx = buildWriteCrashCommitTx(key, value);
+        final Client.ProtoClientRequest req = buildRequest(tx);
+        final byte[] payload =
+                Rpc.ProtoPayload.newBuilder().setClientRequest(req).build().toByteArray();
+        transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));
+    }
+
+    /**
+     * Read from a specific node.
+     *
+     * @param node logical node name
+     * @param key key bytes
+     * @param linearizable true for crash-commit (leader) read; false for on-receive (any) read
+     * @return value bytes or {@code null} if not found / no value in receipt
+     * @throws IOException on transport or parse error
+     */
+    public byte[] get(final String node, final byte[] key, final boolean linearizable)
+            throws IOException {
         final Execution.ProtoTransaction tx =
                 linearizable ? buildReadCrashCommitTx(key) : buildReadOnReceiveTx(key);
-        final Client.ProtoClientReply reply = sendRoundTrip(tx, /*requireLeader=*/ linearizable);
-        if (reply.hasReceipt() && reply.getReceipt().hasResults()) {
-            Execution.ProtoTransactionResult tr = reply.getReceipt().getResults();
-            if (tr.getResultCount() > 0) {
-                Execution.ProtoTransactionOpResult opRes = tr.getResult(0);
-                if (opRes.getValuesCount() > 0) {
-                    return opRes.getValues(0).toByteArray();
+        final Client.ProtoClientRequest req = buildRequest(tx);
+        final byte[] payload =
+                Rpc.ProtoPayload.newBuilder().setClientRequest(req).build().toByteArray();
+
+        final PinnedClient.PinnedMessage msg =
+                transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));
+
+        try {
+            final Client.ProtoClientReply reply =
+                    Client.ProtoClientReply.parseFrom(
+                            CodedInputStream.newInstance(msg.buf, 0, msg.length));
+
+            if (reply.hasReceipt() && reply.getReceipt().hasResults()) {
+                final Execution.ProtoTransactionResult tr = reply.getReceipt().getResults();
+                if (tr.getResultCount() > 0) {
+                    final Execution.ProtoTransactionOpResult opRes = tr.getResult(0);
+                    if (opRes.getValuesCount() > 0) {
+                        return opRes.getValues(0).toByteArray();
+                    }
                 }
             }
+            return null;
+        } catch (final Exception parse) {
+            throw new IOException("Failed to parse ProtoClientReply", parse);
         }
-        // Tentative receipt or receipt w/o values -> treat as not found
-        return null;
     }
 
-    // -----------------------------------------------------------------------------------------------
-    // Round-trip core
-    // -----------------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------------------------------
 
-    private Client.ProtoClientReply sendRoundTrip(
-            Execution.ProtoTransaction tx, boolean requireLeader) {
+    private void ensureDefaultNode() {
+        if (defaultNode == null) {
+            throw new IllegalStateException(
+                    "No default node configured; use put(node,...) / get(node,...)");
+        }
+    }
 
-        ClientWorker.ClientConfig cfg = client.getConfigRef().get();
-        final String origin = cfg.netConfig.name;
+    private Client.ProtoClientRequest buildRequest(final Execution.ProtoTransaction tx) {
         final long tag = tagSeq.getAndIncrement();
-
-        Client.ProtoClientRequest req =
-                Client.ProtoClientRequest.newBuilder()
-                        .setTx(tx)
-                        .setOrigin(origin)
-                        // TODO: add real signature if you wire keystore
-                        .setSig(ByteString.copyFrom(new byte[] {0}))
-                        .setClientTag(tag)
-                        .build();
-
-        Rpc.ProtoPayload payload = Rpc.ProtoPayload.newBuilder().setClientRequest(req).build();
-        final byte[] buf = payload.toByteArray();
-        final int len = buf.length;
-
-        // local routing view (refresh on redirects/try-again)
-        List<String> nodes = new ArrayList<>(cfg.netConfig.nodes.keySet());
-        Collections.sort(nodes);
-
-        int leaderIdx = 0; // server corrects us if wrong
-        int rrIdx = 0;
-
-        for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            if (nodes.isEmpty()) {
-                sleep(BACKOFF);
-                // refresh from live config (maybe updated by other calls)
-                ClientWorker.ClientConfig cur = client.getConfigRef().get();
-                nodes = new ArrayList<>(cur.netConfig.nodes.keySet());
-                Collections.sort(nodes);
-                continue;
-            }
-
-            final String target =
-                    requireLeader
-                            ? nodes.get(Math.floorMod(leaderIdx, nodes.size()))
-                            : nodes.get(Math.floorMod(rrIdx++, nodes.size()));
-
-            boolean sent =
-                    client.send(
-                            target,
-                            new ClientWorker.MessageRef(buf, len, ClientWorker.SenderType.ANON));
-            if (!sent) {
-                if (requireLeader) {
-                    leaderIdx = (leaderIdx + 1) % Math.max(nodes.size(), 1);
-                }
-                sleep(BACKOFF);
-                continue;
-            }
-
-            Optional<ClientWorker.ReceivedMessage> maybe = client.awaitReply(target);
-            if (!maybe.isPresent()) {
-                if (requireLeader) {
-                    leaderIdx = (leaderIdx + 1) % Math.max(nodes.size(), 1);
-                }
-                sleep(BACKOFF);
-                continue;
-            }
-
-            ClientWorker.ReceivedMessage rm = maybe.get();
-            final Client.ProtoClientReply reply;
-            try {
-                CodedInputStream cis = CodedInputStream.newInstance(rm.bytes, 0, rm.length);
-                reply = Client.ProtoClientReply.parseFrom(cis);
-            } catch (Exception parse) {
-                sleep(BACKOFF);
-                continue;
-            }
-
-            if (reply.hasReceipt() || reply.hasTentativeReceipt()) {
-                return reply;
-            }
-
-            if (reply.hasTryAgain()) {
-                String s = reply.getTryAgain().getSerializedNodeInfos();
-                if (s != null && !s.isEmpty()) {
-                    applyNodeUpdate(s);
-                    ClientWorker.ClientConfig cur = client.getConfigRef().get();
-                    nodes = new ArrayList<>(cur.netConfig.nodes.keySet());
-                    Collections.sort(nodes);
-                }
-                sleep(BACKOFF);
-                continue;
-            }
-
-            if (reply.hasLeader()) {
-                String leaderName = reply.getLeader().getName();
-                String s = reply.getLeader().getSerializedNodeInfos();
-                if (s != null && !s.isEmpty()) {
-                    applyNodeUpdate(s);
-                }
-                ClientWorker.ClientConfig cur = client.getConfigRef().get();
-                nodes = new ArrayList<>(cur.netConfig.nodes.keySet());
-                Collections.sort(nodes);
-                int idx = nodes.indexOf(leaderName);
-                if (idx >= 0) {
-                    leaderIdx = idx;
-                }
-                // retry immediately
-                continue;
-            }
-
-            // REPLY_NOT_SET or unknown -> retry
-            sleep(BACKOFF);
-        }
-
-        throw new RuntimeException("KVSClient: exceeded max attempts without success");
+        return Client.ProtoClientRequest.newBuilder()
+                .setTx(tx)
+                .setOrigin("client") // TODO: wire your actual client identity if needed
+                .setSig(ByteString.copyFrom(new byte[] {0})) // TODO: real signature if required
+                .setClientTag(tag)
+                .build();
     }
 
-    // -----------------------------------------------------------------------------------------------
-    // Protobuf tx builders
-    // -----------------------------------------------------------------------------------------------
-
-    private static Execution.ProtoTransaction buildReadOnReceiveTx(byte[] key) {
-        Execution.ProtoTransactionOp read =
+    private static Execution.ProtoTransaction buildReadOnReceiveTx(final byte[] key) {
+        final Execution.ProtoTransactionOp read =
                 Execution.ProtoTransactionOp.newBuilder()
                         .setOpType(Execution.ProtoTransactionOpType.READ)
                         .addOperands(ByteString.copyFrom(key))
                         .build();
-        Execution.ProtoTransactionPhase onReceive =
+        final Execution.ProtoTransactionPhase onReceive =
                 Execution.ProtoTransactionPhase.newBuilder().addOps(read).build();
         return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
     }
 
-    private static Execution.ProtoTransaction buildReadCrashCommitTx(byte[] key) {
-        Execution.ProtoTransactionOp read =
+    private static Execution.ProtoTransaction buildReadCrashCommitTx(final byte[] key) {
+        final Execution.ProtoTransactionOp read =
                 Execution.ProtoTransactionOp.newBuilder()
                         .setOpType(Execution.ProtoTransactionOpType.READ)
                         .addOperands(ByteString.copyFrom(key))
                         .build();
-        Execution.ProtoTransactionPhase onCrash =
+        final Execution.ProtoTransactionPhase onCrash =
                 Execution.ProtoTransactionPhase.newBuilder().addOps(read).build();
         return Execution.ProtoTransaction.newBuilder().setOnCrashCommit(onCrash).build();
     }
 
-    private static Execution.ProtoTransaction buildWriteCrashCommitTx(byte[] key, byte[] value) {
-        Execution.ProtoTransactionOp write =
+    private static Execution.ProtoTransaction buildWriteCrashCommitTx(
+            final byte[] key, final byte[] value) {
+        final Execution.ProtoTransactionOp write =
                 Execution.ProtoTransactionOp.newBuilder()
                         .setOpType(Execution.ProtoTransactionOpType.WRITE)
                         .addOperands(ByteString.copyFrom(key))
                         .addOperands(ByteString.copyFrom(value))
                         .build();
-        Execution.ProtoTransactionPhase onCrash =
+        final Execution.ProtoTransactionPhase onCrash =
                 Execution.ProtoTransactionPhase.newBuilder().addOps(write).build();
         return Execution.ProtoTransaction.newBuilder().setOnCrashCommit(onCrash).build();
-    }
-
-    // -----------------------------------------------------------------------------------------------
-    // Topology helpers
-    // -----------------------------------------------------------------------------------------------
-
-    private void applyNodeUpdate(String serializedNodeInfos) {
-        try {
-            ClientWorker.NodeInfo ni =
-                    ClientWorker.NodeInfo.deserialize(
-                            serializedNodeInfos.getBytes(StandardCharsets.UTF_8));
-            if (ni == null || ni.nodes == null || ni.nodes.isEmpty()) {
-                return;
-            }
-            ClientWorker.ClientConfig oldCfg = client.getConfigRef().get();
-            LinkedHashMap<String, ClientWorker.Node> nodes = new LinkedHashMap<>(ni.nodes);
-            ClientWorker.NetConfig updated = oldCfg.netConfig.copyWith(nodes);
-            ClientWorker.ClientConfig newer = oldCfg.copyWith(updated);
-            client.getConfigRef().set(newer);
-        } catch (Exception ignore) {
-            // keep current topology if parsing fails
-        }
-    }
-
-    private static void sleep(Duration d) {
-        try {
-            Thread.sleep(Math.max(1L, d.toMillis()));
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-        }
     }
 }

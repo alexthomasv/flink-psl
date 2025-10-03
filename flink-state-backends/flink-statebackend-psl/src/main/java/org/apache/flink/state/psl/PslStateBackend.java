@@ -19,6 +19,7 @@ import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.query.TaskKvStateRegistry;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
+import org.apache.flink.runtime.state.DefaultOperatorStateBackendBuilder;
 import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.OperatorStateBackend;
@@ -40,11 +41,12 @@ import java.util.Collection;
 public final class PslStateBackend implements StateBackend {
 
     private final boolean linearizableReads;
-    private final KVSClient kvs;
+    private String kvsConfig;
+    public static final String LINEARIZABLE_READS = "psl.linearizable.reads";
 
-    public PslStateBackend(boolean linearizableReads, KVSClient kvs) {
+    public PslStateBackend(boolean linearizableReads, String kvsConfig) {
         this.linearizableReads = linearizableReads;
-        this.kvs = kvs;
+        this.kvsConfig = kvsConfig;
     }
 
     @Override
@@ -81,6 +83,8 @@ public final class PslStateBackend implements StateBackend {
                 new org.apache.flink.runtime.state.heap.InternalKeyContextImpl<>(
                         keyGroupRange, numberOfKeyGroups);
 
+        KVSClient kvs = new KVSClient(null);
+
         return new PslKeyedStateBackend<>(
                 kvStateRegistry,
                 keySerializer,
@@ -91,7 +95,7 @@ public final class PslStateBackend implements StateBackend {
                 cancelStreamRegistry,
                 compression,
                 keyContext,
-                this.kvs,
+                kvs,
                 this.linearizableReads);
     }
 
@@ -103,6 +107,14 @@ public final class PslStateBackend implements StateBackend {
             CloseableRegistry cancelStreamRegistry)
             throws Exception {
 
-        throw new UnsupportedOperationException("PSL operator state backend not implemented yet.");
+        final boolean asyncSnapshots = true;
+
+        return new DefaultOperatorStateBackendBuilder(
+                        env.getUserCodeClassLoader().asClassLoader(),
+                        env.getExecutionConfig(),
+                        asyncSnapshots,
+                        restoredStateHandles,
+                        cancelStreamRegistry)
+                .build();
     }
 }

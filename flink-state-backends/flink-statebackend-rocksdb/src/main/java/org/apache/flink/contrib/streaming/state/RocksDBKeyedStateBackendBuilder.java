@@ -56,12 +56,15 @@ import org.apache.flink.util.IOUtils;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.ResourceGuard;
 
+import com.psl.utils.KVSClient;
+import com.psl.utils.PinnedClient;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.RocksDB;
 
 import javax.annotation.Nonnull;
+import javax.net.ssl.SSLContext;
 
 import java.io.File;
 import java.io.IOException;
@@ -410,6 +413,28 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         InternalKeyContext<K> keyContext =
                 new InternalKeyContextImpl<>(keyGroupRange, numberOfKeyGroups);
         logger.info("Finished building RocksDB keyed state-backend at {}.", instanceBasePath);
+
+        KVSClient pslClient;
+        try {
+            Map<String, PinnedClient.Node> nodes = new LinkedHashMap<>();
+            nodes.put("n1", new PinnedClient.Node("10.0.0.11", 9443, "n1.example.com"));
+            nodes.put("n2", new PinnedClient.Node("10.0.0.12", 9443, "n2.example.com"));
+
+            PinnedClient.NetConfig net = new PinnedClient.NetConfig(nodes);
+            PinnedClient.Config cfg =
+                    new PinnedClient.Config(
+                            /*fullDuplex=*/ false, // two sockets per peer (send + reply)
+                            /*doAuth=*/ false, // set true if you need an app-level handshake
+                            /*clientSubId=*/ "cA",
+                            net);
+            SSLContext ssl =
+                    PinnedClient.buildSslContext(/*trustStoreJks=*/ null, /*password=*/ null);
+            PinnedClient p = new PinnedClient(cfg, ssl, null);
+            pslClient = new KVSClient(p, "n1");
+        } catch (Exception e) {
+            throw new BackendBuildingException("Failed to initialize PSL client", e);
+        }
+
         return new RocksDBKeyedStateBackend<>(
                 this.userCodeClassLoader,
                 this.instanceBasePath,
@@ -421,6 +446,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                 this.ttlTimeProvider,
                 latencyTrackingStateConfig,
                 db,
+                pslClient,
                 kvStateInformation,
                 registeredPQStates,
                 keyGroupPrefixBytes,

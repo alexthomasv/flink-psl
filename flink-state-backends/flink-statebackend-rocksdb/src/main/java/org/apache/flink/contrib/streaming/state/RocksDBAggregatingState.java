@@ -117,10 +117,10 @@ class RocksDBAggregatingState<K, N, T, ACC, R>
                 if (source != null) {
                     setCurrentNamespace(source);
                     final byte[] sourceKey = serializeCurrentKeyWithGroupAndNamespace();
-                    final byte[] valueBytes = backend.db.get(columnFamily, sourceKey);
+                    final byte[] valueBytes = backend.get(columnFamily, sourceKey);
 
                     if (valueBytes != null) {
-                        backend.db.delete(columnFamily, writeOptions, sourceKey);
+                        backend.delete(columnFamily, writeOptions, sourceKey);
                         dataInputView.setBuffer(valueBytes);
                         ACC value = valueSerializer.deserialize(dataInputView);
 
@@ -138,7 +138,7 @@ class RocksDBAggregatingState<K, N, T, ACC, R>
                 setCurrentNamespace(target);
                 // create the target full-binary-key
                 final byte[] targetKey = serializeCurrentKeyWithGroupAndNamespace();
-                final byte[] targetValueBytes = backend.db.get(columnFamily, targetKey);
+                final byte[] targetValueBytes = backend.get(columnFamily, targetKey);
 
                 if (targetValueBytes != null) {
                     // target also had a value, merge
@@ -153,7 +153,7 @@ class RocksDBAggregatingState<K, N, T, ACC, R>
                 valueSerializer.serialize(current, dataOutputView);
 
                 // write the resulting value
-                backend.db.put(
+                backend.put(
                         columnFamily, writeOptions, targetKey, dataOutputView.getCopyOfBuffer());
             }
         } catch (Exception e) {

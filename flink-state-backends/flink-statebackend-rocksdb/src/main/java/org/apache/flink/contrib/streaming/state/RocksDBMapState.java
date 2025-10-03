@@ -121,7 +121,7 @@ class RocksDBMapState<K, N, UK, UV> extends AbstractRocksDBState<K, N, Map<UK, U
     public UV get(UK userKey) throws IOException, RocksDBException {
         byte[] rawKeyBytes =
                 serializeCurrentKeyWithGroupAndNamespacePlusUserKey(userKey, userKeySerializer);
-        byte[] rawValueBytes = backend.db.get(columnFamily, rawKeyBytes);
+        byte[] rawValueBytes = backend.get(columnFamily, rawKeyBytes);
 
         return (rawValueBytes == null
                 ? null
@@ -135,7 +135,7 @@ class RocksDBMapState<K, N, UK, UV> extends AbstractRocksDBState<K, N, Map<UK, U
                 serializeCurrentKeyWithGroupAndNamespacePlusUserKey(userKey, userKeySerializer);
         byte[] rawValueBytes = serializeValueNullSensitive(userValue, userValueSerializer);
 
-        backend.db.put(columnFamily, writeOptions, rawKeyBytes, rawValueBytes);
+        backend.put(columnFamily, writeOptions, rawKeyBytes, rawValueBytes);
     }
 
     @Override
@@ -163,14 +163,14 @@ class RocksDBMapState<K, N, UK, UV> extends AbstractRocksDBState<K, N, Map<UK, U
         byte[] rawKeyBytes =
                 serializeCurrentKeyWithGroupAndNamespacePlusUserKey(userKey, userKeySerializer);
 
-        backend.db.delete(columnFamily, writeOptions, rawKeyBytes);
+        backend.delete(columnFamily, writeOptions, rawKeyBytes);
     }
 
     @Override
     public boolean contains(UK userKey) throws IOException, RocksDBException {
         byte[] rawKeyBytes =
                 serializeCurrentKeyWithGroupAndNamespacePlusUserKey(userKey, userKeySerializer);
-        byte[] rawValueBytes = backend.db.get(columnFamily, rawKeyBytes);
+        byte[] rawValueBytes = backend.get(columnFamily, rawKeyBytes);
 
         return (rawValueBytes != null);
     }
@@ -530,7 +530,7 @@ class RocksDBMapState<K, N, UK, UV> extends AbstractRocksDBState<K, N, Map<UK, U
                 userValue = value;
                 rawValueBytes = serializeValueNullSensitive(value, valueSerializer);
 
-                db.put(columnFamily, writeOptions, rawKeyBytes, rawValueBytes);
+                backend.put(columnFamily, writeOptions, rawKeyBytes, rawValueBytes);
             } catch (IOException | RocksDBException e) {
                 throw new FlinkRuntimeException("Error while putting data into RocksDB.", e);
             }

@@ -116,7 +116,7 @@ class RocksDBListState<K, N, V> extends AbstractRocksDBState<K, N, List<V>>
     public List<V> getInternal() {
         try {
             byte[] key = serializeCurrentKeyWithGroupAndNamespace();
-            byte[] valueBytes = backend.db.get(columnFamily, key);
+            byte[] valueBytes = backend.get(columnFamily, key);
             return listSerializer.deserializeList(valueBytes, elementSerializer);
         } catch (RocksDBException e) {
             throw new FlinkRuntimeException("Error while retrieving data from RocksDB", e);
@@ -155,10 +155,10 @@ class RocksDBListState<K, N, V> extends AbstractRocksDBState<K, N, List<V>>
                     setCurrentNamespace(source);
                     final byte[] sourceKey = serializeCurrentKeyWithGroupAndNamespace();
 
-                    byte[] valueBytes = backend.db.get(columnFamily, sourceKey);
+                    byte[] valueBytes = backend.get(columnFamily, sourceKey);
 
                     if (valueBytes != null) {
-                        backend.db.delete(columnFamily, writeOptions, sourceKey);
+                        backend.delete(columnFamily, writeOptions, sourceKey);
                         backend.db.merge(columnFamily, writeOptions, targetKey, valueBytes);
                     }
                 }
@@ -179,7 +179,7 @@ class RocksDBListState<K, N, V> extends AbstractRocksDBState<K, N, List<V>>
 
         if (!values.isEmpty()) {
             try {
-                backend.db.put(
+                backend.put(
                         columnFamily,
                         writeOptions,
                         serializeCurrentKeyWithGroupAndNamespace(),

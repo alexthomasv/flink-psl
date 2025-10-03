@@ -59,6 +59,12 @@ under the License.
 			<version>6.20.3-ververica-1.0</version>
 		</dependency>
 
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>psl-utils</artifactId>
+			<version>1.16.3</version> <!-- or ${project.version} if part of the same reactor build -->
+		</dependency>
+
 		<!-- test dependencies -->
 
 		<dependency>

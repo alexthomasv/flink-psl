@@ -144,7 +144,7 @@ public abstract class AbstractRocksDBState<K, N, V> implements InternalKvState<K
                         safeKeySerializer, backend.getKeyGroupPrefixBytes(), 32);
         keyBuilder.setKeyAndKeyGroup(keyAndNamespace.f0, keyGroup);
         byte[] key = keyBuilder.buildCompositeKeyNamespace(keyAndNamespace.f1, namespaceSerializer);
-        return backend.db.get(columnFamily, key);
+        return backend.get(columnFamily, key);
     }
 
     <UK> byte[] serializeCurrentKeyWithGroupAndNamespacePlusUserKey(

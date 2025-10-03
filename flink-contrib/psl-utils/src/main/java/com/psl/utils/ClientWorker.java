@@ -167,6 +167,53 @@ public class ClientWorker<Gen extends ClientWorker.PerWorkerWorkloadGenerator> {
         }
     }
 
+    /** Queue-backed generator that blocks on FIFO until work arrives. */
+    public static final class QueueGenerator implements PerWorkerWorkloadGenerator {
+        private final BlockingQueue<Generated> q;
+        private volatile boolean closed = false;
+
+        // Sentinel to signal "no more work"
+        private static final Generated POISON = new Generated(Executor.Any, new byte[0]);
+
+        public QueueGenerator() {
+            this.q = new java.util.concurrent.LinkedBlockingQueue<>();
+        }
+
+        /** Enqueue one item (blocks if full). */
+        public void enqueue(Generated g) throws InterruptedException {
+            if (closed) {
+                throw new IllegalStateException("generator closed");
+            }
+            q.put(g);
+        }
+
+        /** Try to enqueue without blocking. */
+        public boolean tryEnqueue(Generated g) {
+            return !closed && q.offer(g);
+        }
+
+        /** Gracefully stop the generator (unblocks next()). */
+        public void close() {
+            closed = true;
+            q.offer(POISON);
+        }
+
+        /** Blocking pop. Returns null when closed or interrupted. */
+        @Override
+        public Generated next() {
+            try {
+                Generated g = q.take(); // FIFO & blocks until something is available
+                if (g == POISON) {
+                    return null; // signal end
+                }
+                return g;
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+    }
+
     /** Executor type. */
     public enum Executor {
         Leader,

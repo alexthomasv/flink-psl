@@ -80,7 +80,7 @@ class RocksDBValueState<K, N, V> extends AbstractRocksDBState<K, N, V>
     public V value() {
         try {
             byte[] valueBytes =
-                    backend.db.get(columnFamily, serializeCurrentKeyWithGroupAndNamespace());
+                    backend.get(columnFamily, serializeCurrentKeyWithGroupAndNamespace());
 
             if (valueBytes == null) {
                 return getDefaultValue();
@@ -100,7 +100,7 @@ class RocksDBValueState<K, N, V> extends AbstractRocksDBState<K, N, V>
         }
 
         try {
-            backend.db.put(
+            backend.put(
                     columnFamily,
                     writeOptions,
                     serializeCurrentKeyWithGroupAndNamespace(),
