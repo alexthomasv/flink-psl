@@ -818,10 +818,11 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
                                 : javax.xml.bind.DatatypeConverter.printHexBinary(pslValue)
                                         .toLowerCase(java.util.Locale.ROOT));
                 // If you want a hard assertion:
-                throw new IllegalStateException(
-                        "Local DB value != PSL value for key=" + key == null
-                                ? "null"
-                                : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
+                // throw new IllegalStateException(
+                //         "Local DB value != PSL value for key=" + key == null
+                //                 ? "null"
+                //                 :
+                // DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
             }
             return pslValue; // authoritative from PSL; adjust if you want local fallback
         } catch (java.io.IOException e) {

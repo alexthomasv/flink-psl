@@ -375,11 +375,6 @@ public final class PinnedClient {
             PinnedTlsSocket send = new PinnedTlsSocket(ssl);
             // single socket used for send+reply
             sockMap.put(name, send);
-            keys = String.join(", ", sockMap.keySet());
-            LOG.info("sockMap keys: {}", keys);
-            LOG.info("added to sockMap: {}", name);
-            PinnedTlsSocket x = sockMap.get(name);
-            LOG.info("sockMap.get(name): {}", x);
             return send;
         } catch (IOException e) {
             // make sure to free the plain socket on error
@@ -556,7 +551,7 @@ public final class PinnedClient {
         LOG.info("after sendSock.flushWriteBuffer();");
 
         PinnedTlsSocket replySock = getReplySock(name);
-        byte[] resp = new byte[4096];
+        byte[] resp = new byte[1048676];
         int sz;
         LOG.info("after sendSock.flushWriteBuffer(); before replySock.getNextFrame(resp);");
         synchronized (replySock) {
