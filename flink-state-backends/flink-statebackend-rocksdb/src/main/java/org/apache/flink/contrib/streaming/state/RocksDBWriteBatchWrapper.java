@@ -27,6 +27,8 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -38,6 +40,8 @@ import javax.annotation.Nullable;
  * <p>IMPORTANT: This class is not thread safe.
  */
 public class RocksDBWriteBatchWrapper implements AutoCloseable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(RocksDBWriteBatchWrapper.class);
 
     private static final int MIN_CAPACITY = 100;
     private static final int MAX_CAPACITY = 1000;
@@ -94,6 +98,10 @@ public class RocksDBWriteBatchWrapper implements AutoCloseable {
     public void put(@Nonnull ColumnFamilyHandle handle, @Nonnull byte[] key, @Nonnull byte[] value)
             throws RocksDBException {
 
+        LOG.info(
+                "RocksDBWriteBatchWrapper.put key='{}', value='{}'",
+                new String(key, java.nio.charset.StandardCharsets.UTF_8),
+                new String(value, java.nio.charset.StandardCharsets.UTF_8));
         batch.put(handle, key, value);
 
         flushIfNeeded();

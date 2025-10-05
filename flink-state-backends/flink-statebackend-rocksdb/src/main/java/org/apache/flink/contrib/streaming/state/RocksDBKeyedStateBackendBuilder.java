@@ -56,8 +56,10 @@ import org.apache.flink.util.IOUtils;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.ResourceGuard;
 
+import com.psl.utils.Ed25519Auth;
 import com.psl.utils.KVSClient;
 import com.psl.utils.PinnedClient;
+import com.psl.utils.SslUtil;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
@@ -417,20 +419,27 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         KVSClient pslClient;
         try {
             Map<String, PinnedClient.Node> nodes = new LinkedHashMap<>();
-            nodes.put("n1", new PinnedClient.Node("10.0.0.11", 9443, "n1.example.com"));
-            nodes.put("n2", new PinnedClient.Node("10.0.0.12", 9443, "n2.example.com"));
+            nodes.put("node1", new PinnedClient.Node("127.0.0.1", 3001, "node1.pft.org"));
 
             PinnedClient.NetConfig net = new PinnedClient.NetConfig(nodes);
             PinnedClient.Config cfg =
                     new PinnedClient.Config(
                             /*fullDuplex=*/ false, // two sockets per peer (send + reply)
-                            /*doAuth=*/ false, // set true if you need an app-level handshake
+                            /*doAuth=*/ true, // set true if you need an app-level handshake
                             /*clientSubId=*/ "cA",
                             net);
             SSLContext ssl =
-                    PinnedClient.buildSslContext(/*trustStoreJks=*/ null, /*password=*/ null);
-            PinnedClient p = new PinnedClient(cfg, ssl, null);
-            pslClient = new KVSClient(p, "n1");
+                    SslUtil.sslContextFromPem(
+                            new File(
+                                    "/home/ubuntu/psl-cvm/configs/experiments/storage_sig_1/0/configs/Pft_root_cert.pem"));
+
+            String clientName = "client1";
+            File ed25519PrivateKeyPem =
+                    new File(
+                            "/home/ubuntu/psl-cvm/configs/experiments/storage_sig_1/0/configs/client1_signing_privkey.pem");
+            Ed25519Auth auth = new Ed25519Auth(clientName, "0", ed25519PrivateKeyPem);
+            PinnedClient p = new PinnedClient(cfg, ssl, auth);
+            pslClient = new KVSClient(p, "node1");
         } catch (Exception e) {
             throw new BackendBuildingException("Failed to initialize PSL client", e);
         }

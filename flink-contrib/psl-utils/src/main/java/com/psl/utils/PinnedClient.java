@@ -1,5 +1,8 @@
 package com.psl.utils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -58,6 +61,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * The client lazily reconnects on demand and drops broken sockets from the map.
  */
 public final class PinnedClient {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PinnedClient.class);
 
     // ----------------------------- Config & Model -----------------------------
 
@@ -240,7 +245,9 @@ public final class PinnedClient {
          * @throws IOException on I/O errors
          */
         synchronized int getNextFrame(byte[] target) throws IOException {
+            LOG.info("before getNextFrame: readU32();");
             int len = readU32();
+            LOG.info("getNextFrame: len: {}", len);
             if (len <= 0) {
                 return 0;
             }
@@ -338,8 +345,12 @@ public final class PinnedClient {
             throw new IOException("AddrNotAvailable for node: " + name);
         }
 
+        String keys = String.join(", ", sockMap.keySet());
+        LOG.info("connectOne: keys: {}", keys);
+
         SSLSocketFactory fac = sslContext.getSocketFactory();
-        try (Socket plain = new Socket()) {
+        Socket plain = new Socket();
+        try {
             plain.connect(
                     new InetSocketAddress(n.addrHost, n.addrPort),
                     (int) cfg.connectTimeout.toMillis());
@@ -351,13 +362,33 @@ public final class PinnedClient {
             params.setServerNames(Collections.singletonList(new SNIHostName(n.domain)));
             ssl.setSSLParameters(params);
 
+            LOG.info("ssl Starting handshake");
             ssl.startHandshake();
+            LOG.info("ssl Handshake completed", cfg.doAuth, auth != null);
 
             if (cfg.doAuth && auth != null) {
+                LOG.info("Handshaking with auth");
                 auth.handshakeClient(this, ssl, !isReplyChannel && cfg.fullDuplex, cfg.clientSubId);
+                LOG.info("Handshake with auth completed");
             }
 
-            return new PinnedTlsSocket(ssl);
+            PinnedTlsSocket send = new PinnedTlsSocket(ssl);
+            // single socket used for send+reply
+            sockMap.put(name, send);
+            keys = String.join(", ", sockMap.keySet());
+            LOG.info("sockMap keys: {}", keys);
+            LOG.info("added to sockMap: {}", name);
+            PinnedTlsSocket x = sockMap.get(name);
+            LOG.info("sockMap.get(name): {}", x);
+            return send;
+        } catch (IOException e) {
+            // make sure to free the plain socket on error
+            LOG.info("connectOne: IOException: {}", e);
+            try {
+                plain.close();
+            } catch (IOException ignored) {
+            }
+            throw e;
         }
     }
 
@@ -385,10 +416,13 @@ public final class PinnedClient {
 
     /** @return send socket for {@code name}, reconnecting if necessary */
     private PinnedTlsSocket getSock(String name) throws IOException {
+        LOG.info("PinnedClient: getSock: {}", name);
         PinnedTlsSocket s = sockMap.get(name);
+        LOG.info("PinnedClient: getSock: {}", s);
         if (s != null) {
             return s;
         }
+        LOG.info("s is null, connecting");
         return connect(name);
     }
 
@@ -437,6 +471,8 @@ public final class PinnedClient {
         }
         sockMap.remove(name);
         sockMap.remove(replyName(this, name));
+        LOG.info("removed from sockMap: {}", name);
+        LOG.info("removed from sockMap: {}", replyName(this, name));
         throw e;
     }
 
@@ -451,13 +487,16 @@ public final class PinnedClient {
      *     call)
      */
     public void send(String name, MessageRef data) throws IOException {
+        LOG.info("PinnedClient: send: {}, {}", name, data);
         PinnedTlsSocket sock = getSock(name);
         int len = data.len();
         Instant t0 = Instant.now();
         sendRawSize(name, sock, len);
         long szMicros = Duration.between(t0, Instant.now()).toNanos() / 1000;
+        LOG.info("PinnedClient: sendRawSize: {}, {}", name, szMicros);
         sendRawBytes(name, sock, data.bytes(), len);
         long totalMicros = Duration.between(t0, Instant.now()).toNanos() / 1000;
+        LOG.info("PinnedClient: sendRawBytes: {}, {}", name, totalMicros);
         // Optionally log szMicros / totalMicros here.
         synchronized (sock) {
             sock.flushWriteBuffer();
@@ -500,24 +539,37 @@ public final class PinnedClient {
      * @throws IOException on I/O errors or EOS
      */
     public PinnedMessage sendAndAwaitReply(String name, MessageRef data) throws IOException {
+        LOG.info("PinnedClient: sendAndAwaitReply: {}, {}", name, data);
         PinnedTlsSocket sendSock = getSock(name);
+        LOG.info("after PinnedClient: getSock: {}", sendSock);
         int len = data.len();
+        LOG.info("after PinnedClient: len: {}", len);
         Instant t0 = Instant.now();
+        LOG.info("before sendRawSize: t0: {}", t0);
         sendRawSize(name, sendSock, len);
+        LOG.info("after PinnedClient: sendRawSize: {}", len);
         sendRawBytes(name, sendSock, data.bytes(), len);
+        LOG.info("after PinnedClient: sendRawBytes: {}", len);
         synchronized (sendSock) {
             sendSock.flushWriteBuffer();
         }
+        LOG.info("after sendSock.flushWriteBuffer();");
 
         PinnedTlsSocket replySock = getReplySock(name);
         byte[] resp = new byte[4096];
         int sz;
+        LOG.info("after sendSock.flushWriteBuffer(); before replySock.getNextFrame(resp);");
         synchronized (replySock) {
             sz = replySock.getNextFrame(resp);
         }
+        LOG.info("after replySock.getNextFrame(resp);");
         if (sz == 0) {
+            LOG.info("PinnedClient: sendAndAwaitReply: socket probably closed!");
             throw new EOFException("socket probably closed!");
         }
+        LOG.info(
+                "PinnedClient: sendAndAwaitReply finished: {}",
+                new PinnedMessage(resp, sz, SenderType.Auth));
         return new PinnedMessage(resp, sz, SenderType.Auth);
     }
 
@@ -666,5 +718,9 @@ public final class PinnedClient {
         SSLContext ctx = SSLContext.getInstance("TLS");
         ctx.init(null, tmf.getTrustManagers(), null);
         return ctx;
+    }
+
+    public boolean isFullDuplex() {
+        return cfg.fullDuplex;
     }
 }

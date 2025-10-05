@@ -19,11 +19,16 @@ package com.psl.utils;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import proto.client.Client;
 import proto.execution.Execution;
 import proto.rpc.Rpc;
 
+import javax.xml.bind.DatatypeConverter;
+
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -36,6 +41,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * provided at construction or passed per call) and does not implement redirect/backoff logic.
  */
 public final class KVSClient {
+
+    private static final Logger LOG = LoggerFactory.getLogger(KVSClient.class);
 
     private final PinnedClient transport;
     private final String defaultNode;
@@ -75,6 +82,14 @@ public final class KVSClient {
      * @throws IllegalStateException if no default node was provided
      */
     public void put(final byte[] key, final byte[] value) throws IOException {
+        LOG.info(
+                "KVSClient.put key=0x{}, value=0x{}",
+                key == null
+                        ? "null"
+                        : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
+                value == null
+                        ? "null"
+                        : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
         ensureDefaultNode();
         put(defaultNode, key, value);
     }
@@ -89,6 +104,12 @@ public final class KVSClient {
      * @throws IllegalStateException if no default node was provided
      */
     public byte[] get(final byte[] key, final boolean linearizable) throws IOException {
+        LOG.info(
+                "KVSClient.get key=0x{}, linearizable={}",
+                key == null
+                        ? "null"
+                        : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
+                linearizable);
         ensureDefaultNode();
         return get(defaultNode, key, linearizable);
     }
@@ -106,6 +127,15 @@ public final class KVSClient {
      * @throws IOException on transport or parse error
      */
     public void put(final String node, final byte[] key, final byte[] value) throws IOException {
+        LOG.info(
+                "KVSClient.put node={}, key=0x{}, value=0x{}",
+                node,
+                key == null
+                        ? "null"
+                        : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
+                value == null
+                        ? "null"
+                        : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
         final Execution.ProtoTransaction tx = buildWriteCrashCommitTx(key, value);
         final Client.ProtoClientRequest req = buildRequest(tx);
         final byte[] payload =
@@ -124,15 +154,13 @@ public final class KVSClient {
      */
     public byte[] get(final String node, final byte[] key, final boolean linearizable)
             throws IOException {
-        final Execution.ProtoTransaction tx =
-                linearizable ? buildReadCrashCommitTx(key) : buildReadOnReceiveTx(key);
+        final Execution.ProtoTransaction tx = buildReadOnReceiveTx(key);
         final Client.ProtoClientRequest req = buildRequest(tx);
         final byte[] payload =
                 Rpc.ProtoPayload.newBuilder().setClientRequest(req).build().toByteArray();
 
         final PinnedClient.PinnedMessage msg =
                 transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));
-
         try {
             final Client.ProtoClientReply reply =
                     Client.ProtoClientReply.parseFrom(
@@ -185,17 +213,6 @@ public final class KVSClient {
         return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
     }
 
-    private static Execution.ProtoTransaction buildReadCrashCommitTx(final byte[] key) {
-        final Execution.ProtoTransactionOp read =
-                Execution.ProtoTransactionOp.newBuilder()
-                        .setOpType(Execution.ProtoTransactionOpType.READ)
-                        .addOperands(ByteString.copyFrom(key))
-                        .build();
-        final Execution.ProtoTransactionPhase onCrash =
-                Execution.ProtoTransactionPhase.newBuilder().addOps(read).build();
-        return Execution.ProtoTransaction.newBuilder().setOnCrashCommit(onCrash).build();
-    }
-
     private static Execution.ProtoTransaction buildWriteCrashCommitTx(
             final byte[] key, final byte[] value) {
         final Execution.ProtoTransactionOp write =
@@ -204,8 +221,8 @@ public final class KVSClient {
                         .addOperands(ByteString.copyFrom(key))
                         .addOperands(ByteString.copyFrom(value))
                         .build();
-        final Execution.ProtoTransactionPhase onCrash =
+        final Execution.ProtoTransactionPhase onReceive =
                 Execution.ProtoTransactionPhase.newBuilder().addOps(write).build();
-        return Execution.ProtoTransaction.newBuilder().setOnCrashCommit(onCrash).build();
+        return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
     }
 }
