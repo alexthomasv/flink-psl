@@ -148,8 +148,7 @@ public final class KVSClient {
      * @return value bytes or {@code null} if not found / no value in receipt
      * @throws IOException on transport or parse error
      */
-    public byte[] get(final String node, final byte[] key)
-            throws IOException {
+    public byte[] get(final String node, final byte[] key) throws IOException {
         final Execution.ProtoTransaction tx = buildReadOnReceiveTx(key);
         final Client.ProtoClientRequest req = buildRequest(tx);
         final byte[] payload =
