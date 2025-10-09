@@ -801,7 +801,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
         byte[] value = db.get(columnFamily, key);
 
         try {
-            byte[] pslValue = pslClient.get(key, /*linearizable=*/ true);
+            byte[] pslValue = pslClient.get(key);
             // Assert / verify equality
             if (!Arrays.equals(value, pslValue)) {
                 LOG.error(
