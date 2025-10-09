@@ -96,7 +96,6 @@ public final class KVSClient {
      * GET using the configured default node.
      *
      * @param key key bytes
-     * @param linearizable true for crash-commit (leader) read; false for on-receive (any) read
      * @return value bytes or {@code null} if missing
      * @throws IOException on transport or parse error
      * @throws IllegalStateException if no default node was provided
@@ -146,7 +145,6 @@ public final class KVSClient {
      *
      * @param node logical node name
      * @param key key bytes
-     * @param linearizable true for crash-commit (leader) read; false for on-receive (any) read
      * @return value bytes or {@code null} if not found / no value in receipt
      * @throws IOException on transport or parse error
      */
