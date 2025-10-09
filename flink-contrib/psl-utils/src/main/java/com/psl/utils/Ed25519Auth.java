@@ -53,7 +53,6 @@ public final class Ed25519Auth implements PinnedClient.Auth {
         // 1) read 4-byte nonce (big-endian)
         DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
         int nonce = in.readInt(); // big-endian
-        LOG.info("Ed25519Auth: nonce: {}", nonce);
         // 2) payload = nonce(4 bytes BE) || name(UTF-8)
         byte[] payload = buildPayload(nonce, clientName);
 
@@ -61,7 +60,6 @@ public final class Ed25519Auth implements PinnedClient.Auth {
         byte[] signature;
         try {
             Signature sig = Signature.getInstance("Ed25519", "BC");
-            LOG.info("Ed25519Auth: Signature: {}", sig);
             sig.initSign(ed25519Key);
             sig.update(payload);
             signature = sig.sign();
@@ -89,13 +87,11 @@ public final class Ed25519Auth implements PinnedClient.Auth {
                         .build();
 
         byte[] bytes = resp.toByteArray();
-        LOG.info("Ed25519Auth: bytes: {}", bytes);
         DataOutputStream out =
                 new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
         out.writeInt(bytes.length); // u32 big-endian length
         out.write(bytes);
         out.flush();
-        LOG.info("Ed25519Auth: flushed");
     }
 
     /* ------------------------ helpers ------------------------ */
@@ -142,7 +138,6 @@ public final class Ed25519Auth implements PinnedClient.Auth {
             try {
                 Class<?> bc = Class.forName("org.bouncycastle.jce.provider.BouncyCastleProvider");
                 Security.addProvider((Provider) bc.getDeclaredConstructor().newInstance());
-                LOG.info("BouncyCastle provider added");
             } catch (Throwable t) {
                 // If you see this, add BouncyCastle to your deps:
                 // <dependency>

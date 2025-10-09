@@ -25,10 +25,7 @@ import proto.client.Client;
 import proto.execution.Execution;
 import proto.rpc.Rpc;
 
-import javax.xml.bind.DatatypeConverter;
-
 import java.io.IOException;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -82,14 +79,15 @@ public final class KVSClient {
      * @throws IllegalStateException if no default node was provided
      */
     public void put(final byte[] key, final byte[] value) throws IOException {
-        LOG.info(
-                "KVSClient.put key=0x{}, value=0x{}",
-                key == null
-                        ? "null"
-                        : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
-                value == null
-                        ? "null"
-                        : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
+        // LOG.info(
+        //         "KVSClient.put key=0x{}, value=0x{}, size={}",
+        //         key == null
+        //                 ? "null"
+        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
+        //         value == null
+        //                 ? "null"
+        //                 : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT),
+        //         value == null ? 0 : value.length);
         ensureDefaultNode();
         put(defaultNode, key, value);
     }
@@ -103,15 +101,15 @@ public final class KVSClient {
      * @throws IOException on transport or parse error
      * @throws IllegalStateException if no default node was provided
      */
-    public byte[] get(final byte[] key, final boolean linearizable) throws IOException {
-        LOG.info(
-                "KVSClient.get key=0x{}, linearizable={}",
-                key == null
-                        ? "null"
-                        : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
-                linearizable);
+    public byte[] get(final byte[] key) throws IOException {
+        // LOG.info(
+        //         "KVSClient.get key=0x{}, linearizable={}",
+        //         key == null
+        //                 ? "null"
+        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
+        //         linearizable);
         ensureDefaultNode();
-        return get(defaultNode, key, linearizable);
+        return get(defaultNode, key);
     }
 
     // -------------------------------------------------------------------------------------------------
@@ -127,15 +125,15 @@ public final class KVSClient {
      * @throws IOException on transport or parse error
      */
     public void put(final String node, final byte[] key, final byte[] value) throws IOException {
-        LOG.info(
-                "KVSClient.put node={}, key=0x{}, value=0x{}",
-                node,
-                key == null
-                        ? "null"
-                        : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
-                value == null
-                        ? "null"
-                        : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
+        // LOG.info(
+        //         "KVSClient.put node={}, key=0x{}, value=0x{}",
+        //         node,
+        //         key == null
+        //                 ? "null"
+        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
+        //         value == null
+        //                 ? "null"
+        //                 : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
         final Execution.ProtoTransaction tx = buildWriteCrashCommitTx(key, value);
         final Client.ProtoClientRequest req = buildRequest(tx);
         final byte[] payload =
@@ -152,7 +150,7 @@ public final class KVSClient {
      * @return value bytes or {@code null} if not found / no value in receipt
      * @throws IOException on transport or parse error
      */
-    public byte[] get(final String node, final byte[] key, final boolean linearizable)
+    public byte[] get(final String node, final byte[] key)
             throws IOException {
         final Execution.ProtoTransaction tx = buildReadOnReceiveTx(key);
         final Client.ProtoClientRequest req = buildRequest(tx);

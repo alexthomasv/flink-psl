@@ -29,6 +29,8 @@ import org.apache.flink.util.FlinkRuntimeException;
 
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDBException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
@@ -41,6 +43,7 @@ import java.io.IOException;
  */
 class RocksDBValueState<K, N, V> extends AbstractRocksDBState<K, N, V>
         implements InternalValueState<K, N, V> {
+    private static final Logger LOG = LoggerFactory.getLogger(RocksDBValueState.class);
 
     /**
      * Creates a new {@code RocksDBValueState}.
@@ -81,7 +84,14 @@ class RocksDBValueState<K, N, V> extends AbstractRocksDBState<K, N, V>
         try {
             byte[] valueBytes =
                     backend.get(columnFamily, serializeCurrentKeyWithGroupAndNamespace());
-
+            // LOG.info(
+            //         "valueBytes = "
+            //                 + (valueBytes == null
+            //                         ? "null"
+            //                         : "len="r
+            //                                 + valueBytes.length
+            //                                 + ", hex="
+            //                                 + StringUtils.byteToHexString(valueBytes)));
             if (valueBytes == null) {
                 return getDefaultValue();
             }

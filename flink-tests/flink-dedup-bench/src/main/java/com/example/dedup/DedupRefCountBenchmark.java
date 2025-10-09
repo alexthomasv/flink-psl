@@ -1,19 +1,29 @@
 package com.example.dedup;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.serialization.SimpleStringEncoder;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.file.src.FileSource;
 import org.apache.flink.connector.file.src.reader.TextLineInputFormat;
 import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
+import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
+import org.apache.flink.streaming.api.functions.sink.filesystem.StreamingFileSink;
+import org.apache.flink.streaming.api.functions.sink.filesystem.bucketassigners.BasePathBucketAssigner;
+import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.DefaultRollingPolicy;
 import org.apache.flink.util.Collector;
+
+// import org.apache.flink.table.api.Table;
+// import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
+// import org.apache.flink.util.Collector;
 
 /**
  * Flink streaming job that performs content-based deduplication over line-oriented files, using
@@ -37,9 +47,23 @@ public class DedupRefCountBenchmark {
 
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setStateBackend(new EmbeddedRocksDBStateBackend(true));
+        env.enableCheckpointing(200);
+        // env.setRuntimeMode(org.apache.flink.api.common.RuntimeExecutionMode.BATCH);
+
+        StreamingFileSink<String> sink =
+                StreamingFileSink.forRowFormat(
+                                new Path("file:///home/ubuntu/flink-1.16.3/final-counts"), // output
+                                // DIRECTORY
+                                new SimpleStringEncoder<String>("UTF-8"))
+                        .withBucketAssigner(
+                                new BasePathBucketAssigner<>()) // write under base path (no date
+                        // subdirs)
+                        .withRollingPolicy(
+                                DefaultRollingPolicy.builder().build()) // defaults are fine
+                        .build();
 
         // Use RocksDB for keyed state
-        env.setStateBackend(new EmbeddedRocksDBStateBackend(true));
         // Optionally:
         // env.enableCheckpointing(10_000);
 
@@ -50,6 +74,7 @@ public class DedupRefCountBenchmark {
 
         DataStreamSource<String> lines =
                 env.fromSource(source, WatermarkStrategy.noWatermarks(), "dir-lines");
+        // lines.print("LINES");
 
         // 2) Parse → keep only WRITES → (LBA, hash)
         DataStream<WriteOp> writes =
@@ -89,18 +114,32 @@ public class DedupRefCountBenchmark {
                                     out.collect(new WriteOp(lba, hash, s));
                                 })
                         .returns(Types.POJO(WriteOp.class));
+        // writes.print("WRITES");
 
         // 3) key by LBA → track current resident hash per LBA, emit +/- deltas
         DataStream<Delta> deltas =
-                writes.keyBy(w -> w.lba).process(new LBAStateFn()).name("LBA->Delta");
+                writes.keyBy(w -> w.lba)
+                        .process(new LBAStateFn())
+                        .name("LBA->Delta")
+                        .uid("lba-delta-v3");
+        // deltas.print("DELTAS");
 
-        // 4) key by fingerprint → maintain refcount
-        DataStream<String> events =
-                deltas.keyBy(d -> d.hash).process(new RefCountFn()).name("RefCount");
+        deltas.map(d -> d.hash + "," + d.delta).returns(Types.STRING).print("DELTA");
 
-        // 5) print transitions
-        events.print().name("print");
-
+        DataStream<Tuple2<String, Integer>> finalCounts =
+                deltas.map(d -> Tuple2.of(d.hash, d.delta))
+                        .returns(Types.TUPLE(Types.STRING, Types.INT))
+                        .keyBy(t -> t.f0)
+                        .sum(1); // rolling sum; in BATCH mode the last value per
+        // key is the
+        // finalCounts.print("FINAL COUNTS");
+        finalCounts
+                .filter(t -> t.f1 > 0)
+                .map(t -> t.f0 + "," + t.f1)
+                .returns(Types.STRING)
+                .writeAsText(
+                        "file:///home/ubuntu/flink-1.16.3/final-counts/result.csv",
+                        FileSystem.WriteMode.OVERWRITE);
         env.execute("RocksDB Dedup RefCount (writes-only)");
     }
 
@@ -116,6 +155,11 @@ public class DedupRefCountBenchmark {
             this.lba = lba;
             this.hash = hash;
             this.raw = raw;
+        }
+
+        @Override
+        public String toString() {
+            return "WriteOp{lba=" + lba + ", hash=" + hash + "}";
         }
     }
 
@@ -166,12 +210,22 @@ public class DedupRefCountBenchmark {
             if (old == null) {
                 // first time this LBA gets a value → +1 for new fingerprint
                 currentHash.update(now);
-                out.collect(new Delta(now, +1));
+                out.collect(new Delta(now, 1));
+                // System.err.println("LBA EMIT +1 key=" + ctx.getCurrentKey() + " hash=" + now);
             } else if (!old.equals(now)) {
                 // overwrite: decrement old, increment new
                 out.collect(new Delta(old, -1));
                 out.collect(new Delta(now, +1));
                 currentHash.update(now);
+                // System.err.println(
+                //         "LBA EMIT -1 old="
+                //                 + old
+                //                 + "  +1 new="
+                //                 + now
+                //                 + " key="
+                //                 + ctx.getCurrentKey());
+            } else {
+                // System.err.println("LBA EMIT NO-OP key=" + ctx.getCurrentKey() + " hash=" + now);
             }
             // else same fingerprint; do nothing
         }
@@ -216,36 +270,46 @@ public class DedupRefCountBenchmark {
 
         @Override
         public void open(Configuration parameters) {
-            count = getRuntimeContext().getState(new ValueStateDescriptor<>("refcount", Types.INT));
+            count =
+                    getRuntimeContext()
+                            .getState(new ValueStateDescriptor<>("refcountV5", Types.INT));
         }
 
         @Override
         public void processElement(Delta d, Context ctx, Collector<String> out) throws Exception {
-            Integer c = count.value();
+            Integer c;
+            c = count.value();
+            try {
+                c = count.value();
+            } catch (Exception e) {
+                // Log the current key and delta; then rethrow so it surfaces.
+                throw new RuntimeException(
+                        String.format(
+                                "Bad state for hash=%s delta=%d: %s%n",
+                                ctx.getCurrentKey(), d.delta, e));
+            }
             if (c == null) {
                 c = 0;
             }
-            int newCount = c + d.delta;
+            int next = c + d.delta;
 
-            if (newCount < 0) {
-                // Should not happen if deltas are balanced, but guard anyway.
-                newCount = 0;
+            if (next < 0) {
+                next = 0;
             }
-
-            count.update(newCount);
-
-            if (d.delta > 0) {
-                if (newCount == 1) {
+            if (next == 0) {
+                count.clear();
+                out.collect("REF ZERO hash=" + ctx.getCurrentKey() + " → count=0 (unreferenced)");
+            } else {
+                count.update(next);
+                if (d.delta > 0 && c == 0) {
                     out.collect("REF NEW  hash=" + ctx.getCurrentKey() + " → count=1");
                 } else {
-                    out.collect("REF INC  hash=" + ctx.getCurrentKey() + " → count=" + newCount);
-                }
-            } else { // delta < 0
-                if (newCount == 0) {
                     out.collect(
-                            "REF ZERO hash=" + ctx.getCurrentKey() + " → count=0 (unreferenced)");
-                } else {
-                    out.collect("REF DEC  hash=" + ctx.getCurrentKey() + " → count=" + newCount);
+                            (d.delta > 0 ? "REF INC  " : "REF DEC  ")
+                                    + "hash="
+                                    + ctx.getCurrentKey()
+                                    + " → count="
+                                    + next);
                 }
             }
         }

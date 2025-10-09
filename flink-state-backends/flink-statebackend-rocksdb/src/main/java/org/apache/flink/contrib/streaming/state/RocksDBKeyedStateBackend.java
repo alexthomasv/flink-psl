@@ -774,14 +774,15 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
     public void put(
             ColumnFamilyHandle columnFamily, WriteOptions writeOptions, byte[] key, byte[] value)
             throws RocksDBException {
-        LOG.info(
-                "RocksDBKeyedStateBackend.put key=0x{}, value=0x{}",
-                key == null
-                        ? "null"
-                        : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
-                value == null
-                        ? "null"
-                        : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
+        // LOG.info(
+        //         "RocksDBKeyedStateBackend.put key=0x{}, value=0x{}",
+        //         key == null
+        //                 ? "null"
+        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
+        //         value == null
+        //                 ? "null"
+        //                 : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
+        // System.out.flush();
         db.put(columnFamily, writeOptions, key, value);
         try {
             pslClient.put(key, value);
@@ -791,11 +792,12 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
     }
 
     public byte[] get(ColumnFamilyHandle columnFamily, byte[] key) throws RocksDBException {
-        LOG.info(
-                "RocksDBKeyedStateBackend.get key=0x{}",
-                key == null
-                        ? "null"
-                        : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
+        // LOG.info(
+        //         "RocksDBKeyedStateBackend.get key=0x{}",
+        //         key == null
+        //                 ? "null"
+        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
+        // System.out.flush();
         byte[] value = db.get(columnFamily, key);
 
         try {
@@ -833,12 +835,12 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
     public void delete(ColumnFamilyHandle columnFamily, WriteOptions writeOptions, byte[] key)
             throws RocksDBException {
         db.delete(columnFamily, writeOptions, key);
-
-        try {
-            pslClient.put(key, new byte[0]);
-        } catch (java.io.IOException e) {
-            throw new FlinkRuntimeException("PSL delete failed", e);
-        }
+        throw new RuntimeException("delete");
+        // try {
+        //     pslClient.put(key, new byte[0]);
+        // } catch (java.io.IOException e) {
+        //     throw new FlinkRuntimeException("PSL delete failed", e);
+        // }
     }
 
     /**

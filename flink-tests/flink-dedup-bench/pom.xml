@@ -8,7 +8,7 @@
     <groupId>org.apache.flink</groupId>
     <artifactId>flink-parent</artifactId>
     <version>1.16.3</version>
-    <relativePath>../..</relativePath>
+    <!-- <relativePath>../..</relativePath> -->
   </parent>
 
   <artifactId>flink-dedup-bench</artifactId>
@@ -16,41 +16,50 @@
   <packaging>jar</packaging>
 
   <properties>
-    <!-- compile to Java 8 bytecode -->
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
+    <!-- helpful in shading -->
+    <flink.version>${project.version}</flink.version>
   </properties>
 
   <dependencies>
-    <!-- Flink Streaming API (provided by the cluster/runtime) -->
+    <!-- DataStream API (provided by cluster) -->
     <dependency>
       <groupId>org.apache.flink</groupId>
       <artifactId>flink-streaming-java</artifactId>
-      <version>${project.version}</version>
+      <version>${flink.version}</version>
       <scope>provided</scope>
     </dependency>
 
-    <!-- Flink clients (job submission, provided) -->
+    <!-- Flink clients (provided by cluster) -->
     <dependency>
       <groupId>org.apache.flink</groupId>
       <artifactId>flink-clients</artifactId>
-      <version>${project.version}</version>
+      <version>${flink.version}</version>
       <scope>provided</scope>
     </dependency>
 
-    <!-- RocksDB state backend (provided) -->
+    <!-- RocksDB backend (provided by cluster) -->
     <dependency>
       <groupId>org.apache.flink</groupId>
       <artifactId>flink-statebackend-rocksdb</artifactId>
+      <version>${flink.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Tuple2 lives here -->
+    <dependency>
+      <groupId>org.apache.flink</groupId>
+      <artifactId>flink-java</artifactId>
       <version>${project.version}</version>
       <scope>provided</scope>
     </dependency>
 
-    <!-- Files connector (FileSource / TextLineInputFormat), provided in Flink dist -->
+    <!-- Already present; keep for FileSource/TextLineInputFormat -->
     <dependency>
       <groupId>org.apache.flink</groupId>
       <artifactId>flink-connector-files</artifactId>
-      <version>${project.version}</version>
+      <version>${flink.version}</version>
       <scope>provided</scope>
     </dependency>
   </dependencies>
