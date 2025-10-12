@@ -43,7 +43,7 @@ import org.apache.flink.util.Collector;
 public class DedupRefCountBenchmark {
 
     // CHANGE THIS to your directory with blkparse-like files
-    private static final String DIRECTORY = "file:///home/ubuntu/flink-1.16.3/traces";
+    private static final String DIRECTORY = "file:///home/psladmin/repo/flink-psl/traces";
 
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
