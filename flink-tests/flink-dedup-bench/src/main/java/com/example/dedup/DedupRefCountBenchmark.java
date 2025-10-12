@@ -53,7 +53,7 @@ public class DedupRefCountBenchmark {
 
         StreamingFileSink<String> sink =
                 StreamingFileSink.forRowFormat(
-                                new Path("file:///home/ubuntu/flink-1.16.3/final-counts"), // output
+                                new Path("hdfs:///datasets/fiu/final-counts"), // output
                                 // DIRECTORY
                                 new SimpleStringEncoder<String>("UTF-8"))
                         .withBucketAssigner(
@@ -138,7 +138,7 @@ public class DedupRefCountBenchmark {
                 .map(t -> t.f0 + "," + t.f1)
                 .returns(Types.STRING)
                 .writeAsText(
-                        "file:///home/ubuntu/flink-1.16.3/final-counts/result.csv",
+                        "hdfs:///datasets/fiu/result.csv",
                         FileSystem.WriteMode.OVERWRITE);
         env.execute("RocksDB Dedup RefCount (writes-only)");
     }
