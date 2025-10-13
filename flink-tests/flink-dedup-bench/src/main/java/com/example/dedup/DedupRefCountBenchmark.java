@@ -137,9 +137,7 @@ public class DedupRefCountBenchmark {
                 .filter(t -> t.f1 > 0)
                 .map(t -> t.f0 + "," + t.f1)
                 .returns(Types.STRING)
-                .writeAsText(
-                        "hdfs:///datasets/fiu/result.csv",
-                        FileSystem.WriteMode.OVERWRITE);
+                .writeAsText("hdfs:///datasets/fiu/result.csv", FileSystem.WriteMode.OVERWRITE);
         env.execute("RocksDB Dedup RefCount (writes-only)");
     }
 
