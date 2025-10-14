@@ -95,6 +95,7 @@ import java.util.Map;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -259,6 +260,8 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
     protected final RocksDB db;
 
     protected final KVSClient pslClient;
+    private static volatile double pslLookupRate = 0.10; // 90%
+    private boolean pslEnabled = false;
 
     // mark whether this backend is already disposed and prevent duplicate disposing
     private boolean disposed = false;
@@ -784,6 +787,9 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
         //                 : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
         // System.out.flush();
         db.put(columnFamily, writeOptions, key, value);
+        if (!pslEnabled) {
+            return;
+        }
         try {
             pslClient.put(key, value);
         } catch (java.io.IOException e) {
@@ -799,6 +805,12 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
         //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
         // System.out.flush();
         byte[] value = db.get(columnFamily, key);
+        if (ThreadLocalRandom.current().nextDouble() >= pslClient.getLookupRate()) {
+            return value;
+        }
+        if (!pslClient.isEnabled()) {
+            return value;
+        }
 
         try {
             byte[] pslValue = pslClient.get(key);

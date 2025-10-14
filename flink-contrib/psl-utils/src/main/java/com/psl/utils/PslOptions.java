@@ -40,5 +40,11 @@ public final class PslOptions {
     public static final ConfigOption<Integer> PSL_NODE_PORT =
             ConfigOptions.key("psl.node.port").intType().defaultValue(3001);
 
+    public static final ConfigOption<Double> PSL_LOOKUP_RATE =
+            ConfigOptions.key("psl.lookup.rate").doubleType().defaultValue(0.10);
+
+    public static final ConfigOption<Boolean> PSL_ENABLED =
+            ConfigOptions.key("psl.enabled").booleanType().defaultValue(true);
+
     private PslOptions() {}
 }

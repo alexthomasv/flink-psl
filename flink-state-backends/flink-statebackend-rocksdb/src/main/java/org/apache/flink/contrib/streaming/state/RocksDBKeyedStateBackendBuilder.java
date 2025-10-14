@@ -425,12 +425,15 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         int nodePort = cfg.get(PslOptions.PSL_NODE_PORT);
         String certPath = cfg.get(PslOptions.PSL_SSL_CERT);
         String keyPath = cfg.get(PslOptions.PSL_ED25519_KEY);
+        boolean pslEnabled = cfg.get(PslOptions.PSL_ENABLED);
+        double pslLookupRate = cfg.get(PslOptions.PSL_LOOKUP_RATE);
 
         logger.info("nodeHost: {}", nodeHost);
         logger.info("nodePort: {}", nodePort);
         logger.info("certPath: {}", certPath);
         logger.info("keyPath: {}", keyPath);
-
+        logger.info("pslEnabled: {}", pslEnabled);
+        logger.info("pslLookupRate: {}", pslLookupRate);
         KVSClient pslClient;
         try {
             Map<String, PinnedClient.Node> nodes = new LinkedHashMap<>();
@@ -450,6 +453,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             Ed25519Auth auth = new Ed25519Auth(clientName, "0", ed25519PrivateKeyPem);
             PinnedClient p = new PinnedClient(pinnedClientCfg, ssl, auth);
             pslClient = new KVSClient(p, "node1");
+            pslClient.setLookupRate(pslLookupRate);
+            pslClient.setEnable(pslEnabled);
         } catch (Exception e) {
             throw new BackendBuildingException("Failed to initialize PSL client", e);
         }

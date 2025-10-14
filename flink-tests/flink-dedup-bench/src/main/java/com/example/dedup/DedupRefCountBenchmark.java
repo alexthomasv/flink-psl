@@ -1,7 +1,6 @@
 package com.example.dedup;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.api.common.serialization.SimpleStringEncoder;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
@@ -16,9 +15,6 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
-import org.apache.flink.streaming.api.functions.sink.filesystem.StreamingFileSink;
-import org.apache.flink.streaming.api.functions.sink.filesystem.bucketassigners.BasePathBucketAssigner;
-import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.DefaultRollingPolicy;
 import org.apache.flink.util.Collector;
 
 // import org.apache.flink.table.api.Table;
@@ -50,18 +46,6 @@ public class DedupRefCountBenchmark {
         env.setStateBackend(new EmbeddedRocksDBStateBackend(true));
         env.enableCheckpointing(200);
         // env.setRuntimeMode(org.apache.flink.api.common.RuntimeExecutionMode.BATCH);
-
-        StreamingFileSink<String> sink =
-                StreamingFileSink.forRowFormat(
-                                new Path("hdfs:///datasets/fiu/final-counts"), // output
-                                // DIRECTORY
-                                new SimpleStringEncoder<String>("UTF-8"))
-                        .withBucketAssigner(
-                                new BasePathBucketAssigner<>()) // write under base path (no date
-                        // subdirs)
-                        .withRollingPolicy(
-                                DefaultRollingPolicy.builder().build()) // defaults are fine
-                        .build();
 
         // Use RocksDB for keyed state
         // Optionally:
@@ -137,7 +121,7 @@ public class DedupRefCountBenchmark {
                 .filter(t -> t.f1 > 0)
                 .map(t -> t.f0 + "," + t.f1)
                 .returns(Types.STRING)
-                .writeAsText("hdfs:///results/result.csv", FileSystem.WriteMode.OVERWRITE);
+                .writeAsText("hdfs:///results/", FileSystem.WriteMode.OVERWRITE);
         env.execute("RocksDB Dedup RefCount (writes-only)");
     }
 

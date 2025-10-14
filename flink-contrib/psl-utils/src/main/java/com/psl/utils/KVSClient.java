@@ -44,7 +44,8 @@ public final class KVSClient {
     private final PinnedClient transport;
     private final String defaultNode;
     private final AtomicLong tagSeq = new AtomicLong(1L);
-
+    private double pslLookupRate = 0.10;
+    private boolean pslEnabled = false;
     /**
      * Creates a KV client with a fixed default node to contact.
      *
@@ -55,6 +56,42 @@ public final class KVSClient {
     public KVSClient(final PinnedClient transport, final String defaultNode) {
         this.transport = Objects.requireNonNull(transport, "transport");
         this.defaultNode = defaultNode;
+    }
+
+    /**
+     * Get the PSL lookup rate.
+     *
+     * @return the PSL lookup rate
+     */
+    public double getLookupRate() {
+        return pslLookupRate;
+    }
+
+    /**
+     * Get the PSL lookup rate.
+     *
+     * @return the PSL lookup rate
+     */
+    public boolean isEnabled() {
+        return pslEnabled;
+    }
+
+    /**
+     * Set the PSL lookup rate.
+     *
+     * @param pslLookupRate the PSL lookup rate
+     */
+    public void setLookupRate(double pslLookupRate) {
+        this.pslLookupRate = pslLookupRate;
+    }
+
+    /**
+     * Set the PSL enable.
+     *
+     * @param pslEnabled the PSL enable
+     */
+    public void setEnable(boolean pslEnabled) {
+        this.pslEnabled = pslEnabled;
     }
 
     /**
