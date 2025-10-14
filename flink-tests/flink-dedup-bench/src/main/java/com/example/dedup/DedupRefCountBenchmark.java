@@ -108,7 +108,7 @@ public class DedupRefCountBenchmark {
                         .uid("lba-delta-v3");
         // deltas.print("DELTAS");
 
-        deltas.map(d -> d.hash + "," + d.delta).returns(Types.STRING).print("DELTA");
+        // deltas.map(d -> d.hash + "," + d.delta).returns(Types.STRING).print("DELTA");
 
         DataStream<Tuple2<String, Integer>> finalCounts =
                 deltas.map(d -> Tuple2.of(d.hash, d.delta))
