@@ -44,9 +44,7 @@ public class DedupRefCountBenchmark {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setStateBackend(new EmbeddedRocksDBStateBackend(true));
-        // env.enableCheckpointing(200);
         // env.setRuntimeMode(org.apache.flink.api.common.RuntimeExecutionMode.BATCH);
-
         // Use RocksDB for keyed state
         // Optionally:
         // env.enableCheckpointing(10_000);
