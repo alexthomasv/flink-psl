@@ -219,7 +219,7 @@ public final class PinnedClient {
         }
 
         /** Writes a big-endian 32-bit length prefix to the buffered output. */
-        synchronized void writeU32Buffered(int v) throws IOException {
+        void writeU32Buffered(int v) throws IOException {
             out.write((v >>> 24) & 0xFF);
             out.write((v >>> 16) & 0xFF);
             out.write((v >>> 8) & 0xFF);
@@ -227,12 +227,12 @@ public final class PinnedClient {
         }
 
         /** Writes {@code len} bytes from {@code b} to the buffered output. */
-        synchronized void writeAllBuffered(byte[] b, int len) throws IOException {
+        void writeAllBuffered(byte[] b, int len) throws IOException {
             out.write(b, 0, len);
         }
 
         /** Flushes the buffered output so data is actually transmitted. */
-        synchronized void flushWriteBuffer() throws IOException {
+        void flushWriteBuffer() throws IOException {
             out.flush();
         }
 
@@ -244,7 +244,7 @@ public final class PinnedClient {
          * @throws EOFException if the frame header is truncated
          * @throws IOException on I/O errors
          */
-        synchronized int getNextFrame(byte[] target) throws IOException {
+        int getNextFrame(byte[] target) throws IOException {
             // LOG.info("before getNextFrame: readU32();");
             int len = readU32();
             // LOG.info("getNextFrame: len: {}", len);
@@ -261,7 +261,7 @@ public final class PinnedClient {
         }
 
         /** @return {@code true} if there are bytes already buffered in the input stream. */
-        synchronized boolean hasBufferedBytes() throws IOException {
+        boolean hasBufferedBytes() throws IOException {
             bufferedReadable = Math.max(bufferedReadable, in.available());
             return bufferedReadable > 0;
         }
@@ -538,7 +538,7 @@ public final class PinnedClient {
         }
 
         PinnedTlsSocket replySock = getReplySock(name);
-        byte[] resp = new byte[1048676];
+        byte[] resp = new byte[256]; // TODO 
         int sz;
         synchronized (replySock) {
             sz = replySock.getNextFrame(resp);
