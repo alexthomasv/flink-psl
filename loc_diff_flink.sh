@@ -10,12 +10,12 @@ git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null || {
   echo "Base '$BASE' not found. (Try: git fetch --tags)"; exit 3;
 }
 
-# Pathspec (exclude build outputs / jars / generated)
+# Scope diff to the module and exclude build outputs
 PATHSPEC=( "--" "$DIR/" \
   ':(exclude)**/target/**' ':(exclude)**/build/**' ':(exclude)**/build-target/**' \
   ':(exclude)**/.idea/**' ':(exclude)**/*.jar' ':(exclude)**/generated/**' )
 
-# Collect numstat lines (added \t removed \t path)
+# Collect: added \t removed \t path
 mapfile -t NUMSTAT < <(git diff --numstat --find-renames=50% "$BASE"..HEAD "${PATHSPEC[@]}")
 
 if (( ${#NUMSTAT[@]} == 0 )); then
@@ -24,16 +24,21 @@ if (( ${#NUMSTAT[@]} == 0 )); then
 fi
 
 echo
-echo "Per-file changes in '$DIR' vs '$BASE':"
+echo "Per-file changes (touched = added + removed) in '$DIR' vs '$BASE':"
 {
-  printf "ADDED\tREMOVED\tTOTAL\tPATH\n"
+  printf "ADDED\tREMOVED\tTOUCHED\tPATH\n"
   printf "%s\n" "${NUMSTAT[@]}" \
-  | awk '{add=$1; del=$2; $1=""; $2=""; sub(/^[ \t]+/,""); total=add+del;
-          printf "%d\t%d\t%d\t%s\n", add, del, total, $0}' \
+  | awk '{
+      add=$1; del=$2;
+      $1=""; $2="";
+      sub(/^[ \t]+/,"");
+      touched=add+del;
+      printf "%d\t%d\t%d\t%s\n", add, del, touched, $0
+    }' \
   | sort -nr -k3,3 -k1,1
 } | column -t -s $'\t'
 
 echo
-printf "Aggregate: "
+printf "Aggregate (touched lines): "
 printf "%s\n" "${NUMSTAT[@]}" \
-| awk '{A+=$1; D+=$2} END{printf("added %d, removed %d, net %+d\n", A, D, A-D)}'
+| awk '{A+=$1; D+=$2} END{printf("added %d + removed %d = total %d\n", A, D, A+D)}'
