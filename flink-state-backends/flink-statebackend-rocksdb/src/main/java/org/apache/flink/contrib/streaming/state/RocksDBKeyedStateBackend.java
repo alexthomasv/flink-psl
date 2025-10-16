@@ -261,7 +261,6 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 
     protected final KVSClient pslClient;
     private static volatile double pslLookupRate = 0.10; // 90%
-    private boolean pslEnabled = false;
 
     // mark whether this backend is already disposed and prevent duplicate disposing
     private boolean disposed = false;
@@ -778,7 +777,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
             ColumnFamilyHandle columnFamily, WriteOptions writeOptions, byte[] key, byte[] value)
             throws RocksDBException {
         db.put(columnFamily, writeOptions, key, value);
-        if (!pslEnabled) {
+        if (!pslClient.isEnabled()) {
             return;
         }
         try {
