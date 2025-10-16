@@ -341,7 +341,9 @@ public final class PinnedClient {
      */
     private PinnedTlsSocket connectOne(String name, boolean isReplyChannel) throws IOException {
         Node n = cfg.netConfig.nodes.get(name);
-        if (n == null) throw new IOException("AddrNotAvailable for node: " + name);
+        if (n == null) {
+            throw new IOException("AddrNotAvailable for node: " + name);
+        }
 
         SSLSocketFactory fac = sslContext.getSocketFactory();
         Socket plain = new Socket();
