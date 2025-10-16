@@ -348,7 +348,9 @@ public final class PinnedClient {
         SSLSocketFactory fac = sslContext.getSocketFactory();
         Socket plain = new Socket();
         try {
-            plain.connect(new InetSocketAddress(n.addrHost, n.addrPort), (int) cfg.connectTimeout.toMillis());
+            plain.connect(
+                    new InetSocketAddress(n.addrHost, n.addrPort),
+                    (int) cfg.connectTimeout.toMillis());
             plain.setTcpNoDelay(true);
 
             SSLSocket ssl = (SSLSocket) fac.createSocket(plain, n.addrHost, n.addrPort, true);
@@ -366,10 +368,13 @@ public final class PinnedClient {
 
             return new PinnedTlsSocket(ssl);
         } catch (IOException e) {
-            try { plain.close(); } catch (IOException ignored) {}
+            try {
+                plain.close();
+            } catch (IOException ignored) {
+            }
             throw e;
         }
-}
+    }
 
     /**
      * Ensures entries for {@code name} (and {@code name:reply} if needed) exist in {@link
