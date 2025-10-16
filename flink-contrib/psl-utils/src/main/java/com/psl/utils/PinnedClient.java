@@ -341,51 +341,33 @@ public final class PinnedClient {
      */
     private PinnedTlsSocket connectOne(String name, boolean isReplyChannel) throws IOException {
         Node n = cfg.netConfig.nodes.get(name);
-        if (n == null) {
-            throw new IOException("AddrNotAvailable for node: " + name);
-        }
-
-        String keys = String.join(", ", sockMap.keySet());
-        LOG.info("connectOne: keys: {}", keys);
+        if (n == null) throw new IOException("AddrNotAvailable for node: " + name);
 
         SSLSocketFactory fac = sslContext.getSocketFactory();
         Socket plain = new Socket();
         try {
-            plain.connect(
-                    new InetSocketAddress(n.addrHost, n.addrPort),
-                    (int) cfg.connectTimeout.toMillis());
+            plain.connect(new InetSocketAddress(n.addrHost, n.addrPort), (int) cfg.connectTimeout.toMillis());
             plain.setTcpNoDelay(true);
 
             SSLSocket ssl = (SSLSocket) fac.createSocket(plain, n.addrHost, n.addrPort, true);
-            // SNI
             SSLParameters params = ssl.getSSLParameters();
             params.setServerNames(Collections.singletonList(new SNIHostName(n.domain)));
             ssl.setSSLParameters(params);
 
-            LOG.info("ssl Starting handshake");
             ssl.startHandshake();
-            LOG.info("ssl Handshake completed", cfg.doAuth, auth != null);
 
             if (cfg.doAuth && auth != null) {
-                LOG.info("Handshaking with auth");
-                auth.handshakeClient(this, ssl, !isReplyChannel && cfg.fullDuplex, cfg.clientSubId);
-                LOG.info("Handshake with auth completed");
+                // auth flag is true for the main SEND channel in full-duplex mode
+                boolean isMainSendChannel = cfg.fullDuplex && !isReplyChannel;
+                auth.handshakeClient(this, ssl, isMainSendChannel, cfg.clientSubId);
             }
 
-            PinnedTlsSocket send = new PinnedTlsSocket(ssl);
-            // single socket used for send+reply
-            sockMap.put(name, send);
-            return send;
+            return new PinnedTlsSocket(ssl);
         } catch (IOException e) {
-            // make sure to free the plain socket on error
-            LOG.info("connectOne: IOException: {}", e);
-            try {
-                plain.close();
-            } catch (IOException ignored) {
-            }
+            try { plain.close(); } catch (IOException ignored) {}
             throw e;
         }
-    }
+}
 
     /**
      * Ensures entries for {@code name} (and {@code name:reply} if needed) exist in {@link

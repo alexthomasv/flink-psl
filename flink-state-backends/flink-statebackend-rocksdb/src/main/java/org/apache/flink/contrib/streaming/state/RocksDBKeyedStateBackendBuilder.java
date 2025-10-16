@@ -442,7 +442,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             PinnedClient.NetConfig net = new PinnedClient.NetConfig(nodes);
             PinnedClient.Config pinnedClientCfg =
                     new PinnedClient.Config(
-                            /*fullDuplex=*/ false, // two sockets per peer (send + reply)
+                            /*fullDuplex=*/ true, // two sockets per peer (send + reply)
                             /*doAuth=*/ true, // set true if you need an app-level handshake
                             /*clientSubId=*/ "cA",
                             net);
