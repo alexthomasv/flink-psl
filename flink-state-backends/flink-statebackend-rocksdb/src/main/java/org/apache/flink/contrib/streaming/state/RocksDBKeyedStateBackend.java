@@ -823,7 +823,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
                 //                 :
                 // DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
             }
-            return pslValue; // authoritative from PSL; adjust if you want local fallback
+            return value; // authoritative from PSL; adjust if you want local fallback
         } catch (java.io.IOException e) {
             throw new FlinkRuntimeException("PSL get failed", e);
         }
@@ -833,11 +833,6 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
             throws RocksDBException {
         db.delete(columnFamily, writeOptions, key);
         throw new RuntimeException("delete");
-        // try {
-        //     pslClient.put(key, new byte[0]);
-        // } catch (java.io.IOException e) {
-        //     throw new FlinkRuntimeException("PSL delete failed", e);
-        // }
     }
 
     /**
