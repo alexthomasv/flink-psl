@@ -221,7 +221,6 @@ public class DataInputDeserializer implements DataInputView, java.io.Serializabl
 
     @Override
     public long readLong() throws IOException {
-        System.out.println("readLong position: " + position + " end: " + end);
         if (position >= 0 && position < this.end - 7) {
             @SuppressWarnings("restriction")
             long value = UNSAFE.getLong(this.buffer, BASE_OFFSET + this.position);
