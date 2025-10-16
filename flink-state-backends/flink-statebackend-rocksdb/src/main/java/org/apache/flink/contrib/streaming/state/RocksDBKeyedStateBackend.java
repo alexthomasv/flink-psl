@@ -777,15 +777,6 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
     public void put(
             ColumnFamilyHandle columnFamily, WriteOptions writeOptions, byte[] key, byte[] value)
             throws RocksDBException {
-        // LOG.info(
-        //         "RocksDBKeyedStateBackend.put key=0x{}, value=0x{}",
-        //         key == null
-        //                 ? "null"
-        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
-        //         value == null
-        //                 ? "null"
-        //                 : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
-        // System.out.flush();
         db.put(columnFamily, writeOptions, key, value);
         if (!pslEnabled) {
             return;
@@ -798,12 +789,6 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
     }
 
     public byte[] get(ColumnFamilyHandle columnFamily, byte[] key) throws RocksDBException {
-        // LOG.info(
-        //         "RocksDBKeyedStateBackend.get key=0x{}",
-        //         key == null
-        //                 ? "null"
-        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
-        // System.out.flush();
         byte[] value = db.get(columnFamily, key);
         if (ThreadLocalRandom.current().nextDouble() >= pslClient.getLookupRate()) {
             return value;
