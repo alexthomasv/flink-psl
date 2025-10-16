@@ -538,7 +538,7 @@ public final class PinnedClient {
         }
 
         PinnedTlsSocket replySock = getReplySock(name);
-        byte[] resp = new byte[256]; // TODO 
+        byte[] resp = new byte[256];
         int sz;
         synchronized (replySock) {
             sz = replySock.getNextFrame(resp);
