@@ -214,6 +214,8 @@ public final class PinnedClient {
         PinnedTlsSocket(SSLSocket socket) throws IOException {
             this.socket = socket;
             this.socket.setTcpNoDelay(true);
+            this.socket.setSendBufferSize(1 << 20);
+            this.socket.setReceiveBufferSize(1 << 20);
             this.in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
             this.out = new BufferedOutputStream(socket.getOutputStream());
         }
@@ -468,11 +470,11 @@ public final class PinnedClient {
     public void send(String name, MessageRef data) throws IOException {
         PinnedTlsSocket sock = getSock(name);
         int len = data.len();
-        Instant t0 = Instant.now();
+        // Instant t0 = Instant.now();
         sendRawSize(name, sock, len);
-        long szMicros = Duration.between(t0, Instant.now()).toNanos() / 1000;
+        // long szMicros = Duration.between(t0, Instant.now()).toNanos() / 1000;
         sendRawBytes(name, sock, data.bytes(), len);
-        long totalMicros = Duration.between(t0, Instant.now()).toNanos() / 1000;
+        // long totalMicros = Duration.between(t0, Instant.now()).toNanos() / 1000;
         // Optionally log szMicros / totalMicros here.
         synchronized (sock) {
             sock.flushWriteBuffer();
@@ -520,16 +522,18 @@ public final class PinnedClient {
         Instant t0 = Instant.now();
         sendRawSize(name, sendSock, len);
         sendRawBytes(name, sendSock, data.bytes(), len);
-        synchronized (sendSock) {
-            sendSock.flushWriteBuffer();
-        }
+        // synchronized (sendSock) {
+        //     sendSock.flushWriteBuffer();
+        // }
 
         PinnedTlsSocket replySock = getReplySock(name);
         byte[] resp = new byte[256];
         int sz;
-        synchronized (replySock) {
-            sz = replySock.getNextFrame(resp);
-        }
+        // synchronized (replySock) {
+        //     sz = replySock.getNextFrame(resp);
+        // }
+        sendSock.flushWriteBuffer();
+        sz = replySock.getNextFrame(resp);
         if (sz == 0) {
             LOG.info("PinnedClient: sendAndAwaitReply: socket probably closed!");
             throw new EOFException("socket probably closed!");
