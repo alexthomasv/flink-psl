@@ -35,10 +35,10 @@ public final class Ed25519Auth implements PinnedClient.Auth {
 
     private static final Logger LOG = LoggerFactory.getLogger(Ed25519Auth.class);
     private final String clientName; // must match what the server has in its keylist
-    private final String clientSubId; // whatever you were using in Rust (as u64 -> string here)
+    private final int clientSubId; // whatever you were using in Rust (as u64 -> string here)
     private final PrivateKey ed25519Key; // PKCS#8 Ed25519 private key
 
-    public Ed25519Auth(String clientName, String clientSubId, File pkcs8PemPrivateKey)
+    public Ed25519Auth(String clientName, int clientSubId, File pkcs8PemPrivateKey)
             throws Exception {
         this.clientName = clientName;
         this.clientSubId = clientSubId;
@@ -48,7 +48,7 @@ public final class Ed25519Auth implements PinnedClient.Auth {
 
     @Override
     public void handshakeClient(
-            PinnedClient client, SSLSocket socket, boolean fullDuplexMainChannel, String unused)
+            PinnedClient client, SSLSocket socket, boolean fullDuplexMainChannel, int clientSubId)
             throws IOException {
         // 1) read 4-byte nonce (big-endian)
         DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
@@ -79,11 +79,7 @@ public final class Ed25519Auth implements PinnedClient.Auth {
                         .setName(clientName)
                         .setSignature(com.google.protobuf.ByteString.copyFrom(signature))
                         .setIsReplyChannel(isReplyChannel)
-                        .setClientSubId(
-                                Long.parseLong(
-                                        clientSubId)) // Rust sends u64; here we pass the same value
-                        // as a
-                        // string
+                        .setClientSubId(clientSubId)
                         .build();
 
         byte[] bytes = resp.toByteArray();

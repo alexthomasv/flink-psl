@@ -438,19 +438,19 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         try {
             Map<String, PinnedClient.Node> nodes = new LinkedHashMap<>();
             nodes.put("node1", new PinnedClient.Node(nodeHost, nodePort, "node1.pft.org"));
-
+            int clientSubId = 1337;
             PinnedClient.NetConfig net = new PinnedClient.NetConfig(nodes);
             PinnedClient.Config pinnedClientCfg =
                     new PinnedClient.Config(
-                            /*fullDuplex=*/ true, // two sockets per peer (send + reply)
+                            /*fullDuplex=*/ false, // two sockets per peer (send + reply)
                             /*doAuth=*/ true, // set true if you need an app-level handshake
-                            /*clientSubId=*/ "cA",
+                            /*clientSubId=*/ clientSubId,
                             net);
             SSLContext ssl = SslUtil.sslContextFromPem(new File(certPath));
 
             String clientName = "client1";
             File ed25519PrivateKeyPem = new File(keyPath);
-            Ed25519Auth auth = new Ed25519Auth(clientName, "0", ed25519PrivateKeyPem);
+            Ed25519Auth auth = new Ed25519Auth(clientName, clientSubId, ed25519PrivateKeyPem);
             PinnedClient p = new PinnedClient(pinnedClientCfg, ssl, auth);
             pslClient = new KVSClient(p, "node1");
             pslClient.setLookupRate(pslLookupRate);

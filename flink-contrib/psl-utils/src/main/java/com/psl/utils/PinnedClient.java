@@ -78,7 +78,7 @@ public final class PinnedClient {
          */
         public final boolean doAuth;
         /** Application-specific client sub-id forwarded to the auth hook. */
-        public final String clientSubId;
+        public final int clientSubId;
         /** Peer topology (names to host/port/domain). */
         public final NetConfig netConfig;
         /** TCP connect timeout. */
@@ -90,7 +90,7 @@ public final class PinnedClient {
          * @param clientSubId application-defined sub-id presented to the auth hook
          * @param netConfig peer mapping for connections
          */
-        public Config(boolean fullDuplex, boolean doAuth, String clientSubId, NetConfig netConfig) {
+        public Config(boolean fullDuplex, boolean doAuth, int clientSubId, NetConfig netConfig) {
             this.fullDuplex = fullDuplex;
             this.doAuth = doAuth;
             this.clientSubId = clientSubId;
@@ -219,7 +219,7 @@ public final class PinnedClient {
         }
 
         /** Writes a big-endian 32-bit length prefix to the buffered output. */
-        void writeU32Buffered(int v) throws IOException {
+        synchronized void writeU32Buffered(int v) throws IOException {
             out.write((v >>> 24) & 0xFF);
             out.write((v >>> 16) & 0xFF);
             out.write((v >>> 8) & 0xFF);
@@ -227,12 +227,12 @@ public final class PinnedClient {
         }
 
         /** Writes {@code len} bytes from {@code b} to the buffered output. */
-        void writeAllBuffered(byte[] b, int len) throws IOException {
+        synchronized void writeAllBuffered(byte[] b, int len) throws IOException {
             out.write(b, 0, len);
         }
 
         /** Flushes the buffered output so data is actually transmitted. */
-        void flushWriteBuffer() throws IOException {
+        synchronized void flushWriteBuffer() throws IOException {
             out.flush();
         }
 
@@ -244,7 +244,7 @@ public final class PinnedClient {
          * @throws EOFException if the frame header is truncated
          * @throws IOException on I/O errors
          */
-        int getNextFrame(byte[] target) throws IOException {
+        synchronized int getNextFrame(byte[] target) throws IOException {
             // LOG.info("before getNextFrame: readU32();");
             int len = readU32();
             // LOG.info("getNextFrame: len: {}", len);
@@ -261,7 +261,7 @@ public final class PinnedClient {
         }
 
         /** @return {@code true} if there are bytes already buffered in the input stream. */
-        boolean hasBufferedBytes() throws IOException {
+        synchronized boolean hasBufferedBytes() throws IOException {
             bufferedReadable = Math.max(bufferedReadable, in.available());
             return bufferedReadable > 0;
         }
@@ -299,7 +299,7 @@ public final class PinnedClient {
          * @throws IOException on handshake failure
          */
         void handshakeClient(
-                PinnedClient client, SSLSocket socket, boolean fullDuplex, String clientSubId)
+                PinnedClient client, SSLSocket socket, boolean fullDuplex, int clientSubId)
                 throws IOException;
     }
 
@@ -452,8 +452,6 @@ public final class PinnedClient {
         }
         sockMap.remove(name);
         sockMap.remove(replyName(this, name));
-        LOG.info("removed from sockMap: {}", name);
-        LOG.info("removed from sockMap: {}", replyName(this, name));
         throw e;
     }
 
