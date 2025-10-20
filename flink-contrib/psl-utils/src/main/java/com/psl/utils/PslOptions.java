@@ -46,5 +46,8 @@ public final class PslOptions {
     public static final ConfigOption<Boolean> PSL_ENABLED =
             ConfigOptions.key("psl.enabled").booleanType().defaultValue(true);
 
+    public static final ConfigOption<Integer> PSL_MAX_OUTSTANDING_REQS =
+            ConfigOptions.key("psl.max.outstanding.requests").intType().defaultValue(50000);
+
     private PslOptions() {}
 }

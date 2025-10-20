@@ -428,6 +428,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         String keyPath = cfg.get(PslOptions.PSL_ED25519_KEY);
         boolean pslEnabled = cfg.get(PslOptions.PSL_ENABLED);
         double pslLookupRate = cfg.get(PslOptions.PSL_LOOKUP_RATE);
+        int pslMaxOutstandingReqs = cfg.get(PslOptions.PSL_MAX_OUTSTANDING_REQS);
 
         logger.info("nodeHost: {}", nodeHost);
         logger.info("nodePort: {}", nodePort);
@@ -435,6 +436,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         logger.info("keyPath: {}", keyPath);
         logger.info("pslEnabled: {}", pslEnabled);
         logger.info("pslLookupRate: {}", pslLookupRate);
+        logger.info("pslMaxOutstandingReqs: {}", pslMaxOutstandingReqs);
+
         KVSClient pslClient;
         try {
             Map<String, PinnedClient.Node> nodes = new LinkedHashMap<>();
@@ -453,7 +456,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             File ed25519PrivateKeyPem = new File(keyPath);
             Ed25519Auth auth = new Ed25519Auth(clientName, clientSubId, ed25519PrivateKeyPem);
             PinnedClient p = new PinnedClient(pinnedClientCfg, ssl, auth);
-            pslClient = new KVSClient(p, "node1");
+            pslClient = new KVSClient(p, "node1", pslMaxOutstandingReqs);
             pslClient.setLookupRate(pslLookupRate);
             pslClient.setEnable(pslEnabled);
         } catch (Exception e) {

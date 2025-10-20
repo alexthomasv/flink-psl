@@ -48,7 +48,6 @@ public final class KVSClient {
     private final AtomicLong tagSeq = new AtomicLong(1L);
     private double pslLookupRate = 0.10;
     private boolean pslEnabled = false;
-    private final int maxOutstanding = 50000;
 
     // ==== async reply-dispatch state ====
     private final ConcurrentHashMap<Long, CompletableFuture<byte[]>> pending =
@@ -79,7 +78,8 @@ public final class KVSClient {
      * @param defaultNode logical node name present in the transport's configuration (nullable if
      *     you plan to pass the node each call)
      */
-    public KVSClient(final PinnedClient transport, final String defaultNode) {
+    public KVSClient(
+            final PinnedClient transport, final String defaultNode, final int maxOutstanding) {
         this.transport = Objects.requireNonNull(transport, "transport");
         this.transport.replyReady = this.replyReady;
         this.defaultNode = defaultNode;
@@ -129,7 +129,7 @@ public final class KVSClient {
      * @param transport initialized {@link PinnedClient}
      */
     public KVSClient(final PinnedClient transport) {
-        this(transport, null);
+        this(transport, null, 50000);
     }
 
     // -------------------------------------------------------------------------------------------------
@@ -193,7 +193,7 @@ public final class KVSClient {
 
         maxInFlight.acquire();
         CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
-        pending.put(tag, fut);
+        // pending.put(tag, fut);
         transport.send(node, new PinnedClient.MessageRef(payload));
         return fut;
     }
@@ -218,7 +218,7 @@ public final class KVSClient {
         //         transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));s
         maxInFlight.acquire();
         CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
-        pending.put(tag, fut);
+        // pending.put(tag, fut);
         transport.send(node, new PinnedClient.MessageRef(payload));
         return fut;
         // try {
@@ -343,25 +343,28 @@ public final class KVSClient {
                                                                                         0,
                                                                                         msg.length));
 
-                                                long tag = reply.getClientTag();
-                                                CompletableFuture<byte[]> fut = pending.remove(tag);
-
+                                                // long tag = reply.getClientTag();
+                                                // CompletableFuture<byte[]> fut =
+                                                // pending.remove(tag);
+                                                maxInFlight.release();
                                                 boolean release = false;
-                                                if (fut != null) {
-                                                    switch (reply.getReplyCase()) {
-                                                        case RECEIPT:
-                                                            // fut.complete(
-                                                            //         extractValueOrEmpty(reply));
-                                                            fut.complete(new byte[0]);
-                                                            maxInFlight.release();
-                                                            break;
-                                                        default:
-                                                            maxInFlight.release();
-                                                            fut.completeExceptionally(
-                                                                    new IOException(
-                                                                            "PSL: empty/unknown reply"));
-                                                    }
-                                                }
+                                                // if (fut != null) {
+                                                //     switch (reply.getReplyCase()) {
+                                                //         case RECEIPT:
+                                                //             // fut.complete(
+                                                //             //
+                                                // extractValueOrEmpty(reply));
+                                                //             fut.complete(new byte[0]);
+                                                //             maxInFlight.release();
+                                                //             break;
+                                                //         default:
+                                                //             maxInFlight.release();
+                                                //             fut.completeExceptionally(
+                                                //                     new IOException(
+                                                //                             "PSL: empty/unknown
+                                                // reply"));
+                                                //     }
+                                                // }
 
                                             } catch (IOException e) {
                                                 LOG.warn(
