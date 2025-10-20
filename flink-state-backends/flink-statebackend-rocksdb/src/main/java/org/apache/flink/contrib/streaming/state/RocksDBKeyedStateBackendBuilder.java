@@ -73,6 +73,7 @@ import javax.net.ssl.SSLContext;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -438,11 +439,11 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         try {
             Map<String, PinnedClient.Node> nodes = new LinkedHashMap<>();
             nodes.put("node1", new PinnedClient.Node(nodeHost, nodePort, "node1.pft.org"));
-            int clientSubId = 1337;
+            int clientSubId = new SecureRandom().nextInt();
             PinnedClient.NetConfig net = new PinnedClient.NetConfig(nodes);
             PinnedClient.Config pinnedClientCfg =
                     new PinnedClient.Config(
-                            /*fullDuplex=*/ false, // two sockets per peer (send + reply)
+                            /*fullDuplex=*/ true, // two sockets per peer (send + reply)
                             /*doAuth=*/ true, // set true if you need an app-level handshake
                             /*clientSubId=*/ clientSubId,
                             net);

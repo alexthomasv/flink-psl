@@ -39,7 +39,12 @@ import org.apache.flink.util.Collector;
 public class DedupRefCountBenchmark {
 
     // CHANGE THIS to your directory with blkparse-like files
-    private static final String DIRECTORY = "hdfs:///datasets/fiu/";
+    private static final String HDFS_DIRECTORY = "hdfs:///datasets/fiu/";
+    private static final String NORMAL_DIRECTORY = "file:///home/ubuntu/flink-psl/traces/";
+
+    private static final String HDFS_OUTPUT_DIRECTORY = "hdfs:///results/";
+    private static final String NORMAL_OUTPUT_DIRECTORY = "file:///home/ubuntu/flink-psl/results/";
+    static boolean useHDFS = false;
 
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -51,7 +56,9 @@ public class DedupRefCountBenchmark {
 
         // 1) Source: read all files (non-recursive) as lines
         FileSource<String> source =
-                FileSource.forRecordStreamFormat(new TextLineInputFormat(), new Path(DIRECTORY))
+                FileSource.forRecordStreamFormat(
+                                new TextLineInputFormat(),
+                                new Path(useHDFS ? HDFS_DIRECTORY : NORMAL_DIRECTORY))
                         .build();
 
         DataStreamSource<String> lines =
@@ -119,7 +126,9 @@ public class DedupRefCountBenchmark {
                 .filter(t -> t.f1 > 0)
                 .map(t -> t.f0 + "," + t.f1)
                 .returns(Types.STRING)
-                .writeAsText("hdfs:///results/", FileSystem.WriteMode.OVERWRITE);
+                .writeAsText(
+                        useHDFS ? HDFS_OUTPUT_DIRECTORY : NORMAL_OUTPUT_DIRECTORY,
+                        FileSystem.WriteMode.OVERWRITE);
         env.execute("RocksDB Dedup RefCount (writes-only)");
     }
 

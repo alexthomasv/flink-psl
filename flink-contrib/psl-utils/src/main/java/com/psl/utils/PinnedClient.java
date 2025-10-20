@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 
 /**
  * TLS client that sends and receives length-prefixed frames over per-peer connections.
@@ -63,6 +64,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class PinnedClient {
 
     private static final Logger LOG = LoggerFactory.getLogger(PinnedClient.class);
+    public ConcurrentHashMap<String, Semaphore> replyReady = new ConcurrentHashMap<>();
 
     // ----------------------------- Config & Model -----------------------------
 
@@ -107,6 +109,10 @@ public final class PinnedClient {
         public NetConfig(Map<String, Node> nodes) {
             this.nodes = nodes;
         }
+    }
+
+    private Semaphore readyFor(String node) {
+        return this.replyReady.computeIfAbsent(node, n -> new Semaphore(0, true));
     }
 
     /** A single socket endpoint (address + SNI domain). */
@@ -247,9 +253,7 @@ public final class PinnedClient {
          * @throws IOException on I/O errors
          */
         synchronized int getNextFrame(byte[] target) throws IOException {
-            // LOG.info("before getNextFrame: readU32();");
             int len = readU32();
-            // LOG.info("getNextFrame: len: {}", len);
             if (len <= 0) {
                 return 0;
             }
@@ -307,7 +311,7 @@ public final class PinnedClient {
 
     // ----------------------------- PinnedClient core -----------------------------
 
-    private final Config cfg;
+    public final Config cfg;
     private final SSLContext sslContext;
     private final Auth auth; // nullable if doAuth=false
 
@@ -388,14 +392,17 @@ public final class PinnedClient {
      */
     private synchronized PinnedTlsSocket connect(String name) throws IOException {
         if (cfg.fullDuplex) {
-            PinnedTlsSocket main = connectOne(name, false);
             PinnedTlsSocket reply = connectOne(name, true);
+            PinnedTlsSocket main = connectOne(name, false);
             sockMap.put(name, main);
             sockMap.put(replyName(this, name), reply);
+            readyFor(name).release();
             return main;
         } else {
+            LOG.info("connect: not fullDuplex: name: {}, clientSubId: {}", name, cfg.clientSubId);
             PinnedTlsSocket single = connectOne(name, false);
             sockMap.put(name, single);
+            readyFor(name).release();
             return single;
         }
     }
@@ -470,13 +477,9 @@ public final class PinnedClient {
     public void send(String name, MessageRef data) throws IOException {
         PinnedTlsSocket sock = getSock(name);
         int len = data.len();
-        // Instant t0 = Instant.now();
-        sendRawSize(name, sock, len);
-        // long szMicros = Duration.between(t0, Instant.now()).toNanos() / 1000;
-        sendRawBytes(name, sock, data.bytes(), len);
-        // long totalMicros = Duration.between(t0, Instant.now()).toNanos() / 1000;
-        // Optionally log szMicros / totalMicros here.
         synchronized (sock) {
+            sendRawSize(name, sock, len);
+            sendRawBytes(name, sock, data.bytes(), len);
             sock.flushWriteBuffer();
         }
     }

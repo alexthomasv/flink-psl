@@ -18,7 +18,6 @@
 package com.psl.utils;
 
 import com.google.protobuf.ByteString;
-import com.google.protobuf.CodedInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import proto.client.Client;
@@ -27,6 +26,9 @@ import proto.rpc.Rpc;
 
 import java.io.IOException;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -46,6 +48,30 @@ public final class KVSClient {
     private final AtomicLong tagSeq = new AtomicLong(1L);
     private double pslLookupRate = 0.10;
     private boolean pslEnabled = false;
+    private final int maxOutstanding = 50000;
+
+    // ==== async reply-dispatch state ====
+    private final ConcurrentHashMap<Long, CompletableFuture<byte[]>> pending =
+            new ConcurrentHashMap<>();
+    // one reply loop per node (spawned lazily)
+    private final ConcurrentHashMap<String, Thread> replyLoops = new ConcurrentHashMap<>();
+
+    // bounded in-flight requests across all nodes
+    private final Semaphore maxInFlight;
+    // lifecycle
+    private volatile boolean running = true;
+    private final ConcurrentHashMap<String, Semaphore> replyReady = new ConcurrentHashMap<>();
+
+    /**
+     * Get the reply ready semaphore for a given node.
+     *
+     * @param node the node name
+     * @return the reply ready semaphore
+     */
+    public Semaphore readyFor(String node) {
+        return replyReady.computeIfAbsent(node, n -> new Semaphore(0, true));
+    }
+
     /**
      * Creates a KV client with a fixed default node to contact.
      *
@@ -55,7 +81,10 @@ public final class KVSClient {
      */
     public KVSClient(final PinnedClient transport, final String defaultNode) {
         this.transport = Objects.requireNonNull(transport, "transport");
+        this.transport.replyReady = this.replyReady;
         this.defaultNode = defaultNode;
+        this.maxInFlight = new Semaphore(maxOutstanding, true);
+        startCheckerThread(defaultNode);
     }
 
     /**
@@ -115,7 +144,8 @@ public final class KVSClient {
      * @throws IOException on transport or parse error
      * @throws IllegalStateException if no default node was provided
      */
-    public void put(final byte[] key, final byte[] value) throws IOException {
+    public CompletableFuture<byte[]> put(final byte[] key, final byte[] value)
+            throws IOException, InterruptedException {
         // LOG.info(
         //         "KVSClient.put key=0x{}, value=0x{}, size={}",
         //         key == null
@@ -125,8 +155,7 @@ public final class KVSClient {
         //                 ? "null"
         //                 : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT),
         //         value == null ? 0 : value.length);
-        ensureDefaultNode();
-        put(defaultNode, key, value);
+        return put(defaultNode, key, value);
     }
 
     /**
@@ -137,14 +166,8 @@ public final class KVSClient {
      * @throws IOException on transport or parse error
      * @throws IllegalStateException if no default node was provided
      */
-    public byte[] get(final byte[] key) throws IOException {
-        // LOG.info(
-        //         "KVSClient.get key=0x{}, linearizable={}",
-        //         key == null
-        //                 ? "null"
-        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
-        //         linearizable);
-        ensureDefaultNode();
+    public CompletableFuture<byte[]> get(final byte[] key)
+            throws IOException, InterruptedException {
         return get(defaultNode, key);
     }
 
@@ -160,21 +183,19 @@ public final class KVSClient {
      * @param value value bytes
      * @throws IOException on transport or parse error
      */
-    public void put(final String node, final byte[] key, final byte[] value) throws IOException {
-        // LOG.info(
-        //         "KVSClient.put node={}, key=0x{}, value=0x{}",
-        //         node,
-        //         key == null
-        //                 ? "null"
-        //                 : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
-        //         value == null
-        //                 ? "null"
-        //                 : DatatypeConverter.printHexBinary(value).toLowerCase(Locale.ROOT));
+    public CompletableFuture<byte[]> put(final String node, final byte[] key, final byte[] value)
+            throws IOException, InterruptedException {
         final Execution.ProtoTransaction tx = buildWriteCrashCommitTx(key, value);
         final Client.ProtoClientRequest req = buildRequest(tx);
+        final long tag = req.getClientTag();
         final byte[] payload =
                 Rpc.ProtoPayload.newBuilder().setClientRequest(req).build().toByteArray();
-        transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));
+
+        maxInFlight.acquire();
+        CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
+        pending.put(tag, fut);
+        transport.send(node, new PinnedClient.MessageRef(payload));
+        return fut;
     }
 
     /**
@@ -185,44 +206,44 @@ public final class KVSClient {
      * @return value bytes or {@code null} if not found / no value in receipt
      * @throws IOException on transport or parse error
      */
-    public byte[] get(final String node, final byte[] key) throws IOException {
+    public CompletableFuture<byte[]> get(final String node, final byte[] key)
+            throws IOException, InterruptedException {
         final Execution.ProtoTransaction tx = buildReadOnReceiveTx(key);
         final Client.ProtoClientRequest req = buildRequest(tx);
         final byte[] payload =
                 Rpc.ProtoPayload.newBuilder().setClientRequest(req).build().toByteArray();
+        final long tag = req.getClientTag();
 
-        final PinnedClient.PinnedMessage msg =
-                transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));
-        try {
-            final Client.ProtoClientReply reply =
-                    Client.ProtoClientReply.parseFrom(
-                            CodedInputStream.newInstance(msg.buf, 0, msg.length));
+        // final PinnedClient.PinnedMessage msg =
+        //         transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));s
+        maxInFlight.acquire();
+        CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
+        pending.put(tag, fut);
+        transport.send(node, new PinnedClient.MessageRef(payload));
+        return fut;
+        // try {
+        //     final Client.ProtoClientReply reply =
+        //             Client.ProtoClientReply.parseFrom(
+        //                     CodedInputStream.newInstance(msg.buf, 0, msg.length));
 
-            if (reply.hasReceipt() && reply.getReceipt().hasResults()) {
-                final Execution.ProtoTransactionResult tr = reply.getReceipt().getResults();
-                if (tr.getResultCount() > 0) {
-                    final Execution.ProtoTransactionOpResult opRes = tr.getResult(0);
-                    if (opRes.getValuesCount() > 0) {
-                        return opRes.getValues(0).toByteArray();
-                    }
-                }
-            }
-            return null;
-        } catch (final Exception parse) {
-            throw new IOException("Failed to parse ProtoClientReply", parse);
-        }
+        //     if (reply.hasReceipt() && reply.getReceipt().hasResults()) {
+        //         final Execution.ProtoTransactionResult tr = reply.getReceipt().getResults();
+        //         if (tr.getResultCount() > 0) {
+        //             final Execution.ProtoTransactionOpResult opRes = tr.getResult(0);
+        //             if (opRes.getValuesCount() > 0) {
+        //                 return opRes.getValues(0).toByteArray();
+        //             }
+        //         }
+        //     }
+        //     return null;
+        // } catch (final Exception parse) {
+        //     throw new IOException("Failed to parse ProtoClientReply", parse);
+        // }
     }
 
     // -------------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------------
-
-    private void ensureDefaultNode() {
-        if (defaultNode == null) {
-            throw new IllegalStateException(
-                    "No default node configured; use put(node,...) / get(node,...)");
-        }
-    }
 
     private Client.ProtoClientRequest buildRequest(final Execution.ProtoTransaction tx) {
         final long tag = tagSeq.getAndIncrement();
@@ -256,5 +277,111 @@ public final class KVSClient {
         final Execution.ProtoTransactionPhase onReceive =
                 Execution.ProtoTransactionPhase.newBuilder().addOps(write).build();
         return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
+    }
+
+    // Helper: pull first value out of the receipt; [] if none.
+    private static byte[] extractValueOrEmpty(proto.client.Client.ProtoClientReply reply) {
+        if (!reply.hasReceipt()) {
+            return new byte[0];
+        }
+        proto.client.Client.ProtoTransactionReceipt rcpt = reply.getReceipt();
+
+        if (!rcpt.hasResults()) {
+            return new byte[0];
+        }
+        proto.execution.Execution.ProtoTransactionResult tr = rcpt.getResults();
+
+        if (tr.getResultCount() == 0) {
+            return new byte[0];
+        }
+        proto.execution.Execution.ProtoTransactionOpResult op = tr.getResult(0);
+
+        if (op.getValuesCount() == 0) {
+            return new byte[0];
+        }
+        return op.getValues(0).toByteArray();
+    }
+
+    private void startCheckerThread(String node) {
+        replyLoops.computeIfAbsent(
+                node,
+                n -> {
+                    Thread t =
+                            new Thread(
+                                    () -> {
+                                        try {
+                                            this.readyFor(n).acquire();
+                                        } catch (InterruptedException e) {
+                                            LOG.error(
+                                                    "reply loop interrupted for node {}: {}",
+                                                    n,
+                                                    e.toString());
+                                            return;
+                                        }
+                                        while (running) {
+                                            try {
+                                                // LOG.info(
+                                                //         "permits={}, queued={}, fair={}",
+                                                //         maxInFlight.availablePermits(),
+                                                //         maxInFlight.getQueueLength(), //
+                                                // estimated
+                                                //         // number of
+                                                //         // waiting
+                                                //         // threads
+                                                //         maxInFlight.isFair());
+                                                // LOG.info("pending size = {}", pending.size());
+                                                // LOG.info("pending keys = {}", pending.keySet());
+                                                PinnedClient.PinnedMessage msg =
+                                                        transport.awaitReply(n);
+                                                final proto.client.Client.ProtoClientReply reply =
+                                                        proto.client.Client.ProtoClientReply
+                                                                .parseFrom(
+                                                                        com.google.protobuf
+                                                                                .CodedInputStream
+                                                                                .newInstance(
+                                                                                        msg.buf,
+                                                                                        0,
+                                                                                        msg.length));
+
+                                                long tag = reply.getClientTag();
+                                                CompletableFuture<byte[]> fut = pending.remove(tag);
+
+                                                boolean release = false;
+                                                if (fut != null) {
+                                                    switch (reply.getReplyCase()) {
+                                                        case RECEIPT:
+                                                            // fut.complete(
+                                                            //         extractValueOrEmpty(reply));
+                                                            fut.complete(new byte[0]);
+                                                            maxInFlight.release();
+                                                            break;
+                                                        default:
+                                                            maxInFlight.release();
+                                                            fut.completeExceptionally(
+                                                                    new IOException(
+                                                                            "PSL: empty/unknown reply"));
+                                                    }
+                                                }
+
+                                            } catch (IOException e) {
+                                                LOG.warn(
+                                                        "awaitReply({}) failed: {}",
+                                                        n,
+                                                        e.toString());
+                                            } catch (Throwable t2) {
+                                                LOG.error(
+                                                        "reply loop crashed for node {}: {}",
+                                                        n,
+                                                        t2.toString(),
+                                                        t2);
+                                                break;
+                                            }
+                                        }
+                                    },
+                                    "psl-reply-loop-" + n);
+                    t.setDaemon(true);
+                    t.start();
+                    return t;
+                });
     }
 }

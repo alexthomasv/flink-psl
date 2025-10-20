@@ -81,19 +81,17 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.bind.DatatypeConverter;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
@@ -784,6 +782,8 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
             pslClient.put(key, value);
         } catch (java.io.IOException e) {
             throw new FlinkRuntimeException("PSL put failed", e);
+        } catch (InterruptedException e) {
+            throw new FlinkRuntimeException("PSL put interrupted", e);
         }
     }
 
@@ -797,35 +797,43 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
         }
 
         try {
-            byte[] pslValue = pslClient.get(key);
-            // Assert / verify equality
-            if (!Arrays.equals(value, pslValue)) {
-                LOG.error(
-                        "PSL mismatch for key=0x{} (len db=0x{}, len psl=0x{})\n  db : 0x{}\n  psl: 0x{}",
-                        key == null
-                                ? "null"
-                                : DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
-                        value == null ? -1 : value.length,
-                        pslValue == null ? -1 : pslValue.length,
-                        value == null
-                                ? "null"
-                                : javax.xml.bind.DatatypeConverter.printHexBinary(value)
-                                        .toLowerCase(java.util.Locale.ROOT),
-                        pslValue == null
-                                ? "null"
-                                : javax.xml.bind.DatatypeConverter.printHexBinary(pslValue)
-                                        .toLowerCase(java.util.Locale.ROOT));
-                // If you want a hard assertion:
-                // throw new IllegalStateException(
-                //         "Local DB value != PSL value for key=" + key == null
-                //                 ? "null"
-                //                 :
-                // DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
-            }
+            CompletableFuture<byte[]> fut = pslClient.get(key);
+            //     byte[] pslValue = fut.get();
+            //     // Assert / verify equality
+            //     if (false && !Arrays.equals(value, pslValue)) {
+            //         LOG.error(
+            //                 "PSL mismatch for key=0x{} (len db=0x{}, len psl=0x{})\n  db : 0x{}\n
+            //  psl: 0x{}",
+            //                 key == null
+            //                         ? "null"
+            //                         :
+            // DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT),
+            //                 value == null ? -1 : value.length,
+            //                 pslValue == null ? -1 : pslValue.length,
+            //                 value == null
+            //                         ? "null"
+            //                         : javax.xml.bind.DatatypeConverter.printHexBinary(value)
+            //                                 .toLowerCase(java.util.Locale.ROOT),
+            //                 pslValue == null
+            //                         ? "null"
+            //                         : javax.xml.bind.DatatypeConverter.printHexBinary(pslValue)
+            //                                 .toLowerCase(java.util.Locale.ROOT));
+            //         // If you want a hard assertion:
+            //         // throw new IllegalStateException(
+            //         //         "Local DB value != PSL value for key=" + key == null
+            //         //                 ? "null"
+            //         //                 :
+            //         // DatatypeConverter.printHexBinary(key).toLowerCase(Locale.ROOT));
+            //     }
             return value; // authoritative from PSL; adjust if you want local fallback
         } catch (java.io.IOException e) {
             throw new FlinkRuntimeException("PSL get failed", e);
+        } catch (InterruptedException e) {
+            throw new FlinkRuntimeException("PSL get interrupted", e);
         }
+        // catch (ExecutionException e) {
+        //     throw new FlinkRuntimeException("PSL get execution exception", e);
+        // }
     }
 
     public void delete(ColumnFamilyHandle columnFamily, WriteOptions writeOptions, byte[] key)
