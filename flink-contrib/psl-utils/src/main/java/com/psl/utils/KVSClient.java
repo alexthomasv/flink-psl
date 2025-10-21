@@ -23,10 +23,6 @@ import org.slf4j.LoggerFactory;
 import proto.client.Client;
 import proto.execution.Execution;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.Objects;
@@ -65,11 +61,8 @@ public final class KVSClient {
     private volatile boolean running = true;
     private final ConcurrentHashMap<String, Semaphore> replyReady = new ConcurrentHashMap<>();
 
-    private final String fifoInPath = "/tmp/psl_fifo_in";
-    private final FileWriter fifoInWriter;
-
-    private final String fifoOutPath = "/tmp/psl_fifo_out";
-    private final BufferedReader fifoOutReader;
+    private final FifoLeaseAllocator fifoLeaseAllocator;
+    private final FifoLeaseAllocator.FifoIO fifoIO;
 
     /**
      * Get the reply ready semaphore for a given node.
@@ -95,13 +88,9 @@ public final class KVSClient {
         this.defaultNode = defaultNode;
         this.maxInFlight = new Semaphore(maxOutstanding, true);
         try {
-            this.fifoInWriter = new FileWriter(new File(fifoInPath + transport.cfg.clientSubId));
-            LOG.info("fifoInWriter: {}", fifoInPath + transport.cfg.clientSubId);
-            this.fifoOutReader =
-                    new BufferedReader(
-                            new FileReader(new File(fifoOutPath + transport.cfg.clientSubId)));
-            LOG.info("fifoOutReader: {}", fifoOutPath + transport.cfg.clientSubId);
-        } catch (IOException e) {
+            this.fifoLeaseAllocator = FifoLeaseAllocator.claim("/tmp/psl_fifo");
+            this.fifoIO = fifoLeaseAllocator.openClientIO();
+        } catch (Exception e) {
             LOG.error("Failed to create FIFO files", e);
             throw new RuntimeException(e);
         }
@@ -222,7 +211,7 @@ public final class KVSClient {
         // base64 encode the key and value
         String keyBase64 = Base64.getEncoder().encodeToString(key);
         String valueBase64 = Base64.getEncoder().encodeToString(value);
-        fifoInWriter.write("W " + keyBase64 + " " + valueBase64 + "\n");
+        this.fifoIO.inWriter.write("W " + keyBase64 + " " + valueBase64 + "\n");
         // fifoInWriter.flush();
         CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
         return fut;
@@ -248,7 +237,7 @@ public final class KVSClient {
         // //         transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));s
         // maxInFlight.acquire();
         String keyBase64 = Base64.getEncoder().encodeToString(key);
-        fifoInWriter.write("R " + keyBase64 + "\n");
+        this.fifoIO.inWriter.write("R " + keyBase64 + "\n");
         // fifoInWriter.flush();
         CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
         // // pending.put(tag, fut);
@@ -353,7 +342,7 @@ public final class KVSClient {
                                         // }
                                         while (running) {
                                             try {
-                                                String line = fifoOutReader.readLine();
+                                                String line = this.fifoIO.outReader.readLine();
                                                 // LOG.info("line: {}", line);
                                                 // maxInFlight.release();
 
