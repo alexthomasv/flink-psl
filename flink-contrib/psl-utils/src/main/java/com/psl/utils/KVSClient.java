@@ -95,8 +95,12 @@ public final class KVSClient {
         this.defaultNode = defaultNode;
         this.maxInFlight = new Semaphore(maxOutstanding, true);
         try {
-            this.fifoInWriter = new FileWriter(new File(fifoInPath));
-            this.fifoOutReader = new BufferedReader(new FileReader(new File(fifoOutPath)));
+            this.fifoInWriter = new FileWriter(new File(fifoInPath + transport.cfg.clientSubId));
+            LOG.info("fifoInWriter: {}", fifoInPath + transport.cfg.clientSubId);
+            this.fifoOutReader =
+                    new BufferedReader(
+                            new FileReader(new File(fifoOutPath + transport.cfg.clientSubId)));
+            LOG.info("fifoOutReader: {}", fifoOutPath + transport.cfg.clientSubId);
         } catch (IOException e) {
             LOG.error("Failed to create FIFO files", e);
             throw new RuntimeException(e);
@@ -214,12 +218,12 @@ public final class KVSClient {
         // // pending.put(tag, fut);
         // transport.send(node, new PinnedClient.MessageRef(payload));
 
-        maxInFlight.acquire();
+        // maxInFlight.acquire();
         // base64 encode the key and value
         String keyBase64 = Base64.getEncoder().encodeToString(key);
         String valueBase64 = Base64.getEncoder().encodeToString(value);
         fifoInWriter.write("W " + keyBase64 + " " + valueBase64 + "\n");
-        fifoInWriter.flush();
+        // fifoInWriter.flush();
         CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
         return fut;
     }
@@ -242,10 +246,10 @@ public final class KVSClient {
 
         // // final PinnedClient.PinnedMessage msg =
         // //         transport.sendAndAwaitReply(node, new PinnedClient.MessageRef(payload));s
-        maxInFlight.acquire();
+        // maxInFlight.acquire();
         String keyBase64 = Base64.getEncoder().encodeToString(key);
         fifoInWriter.write("R " + keyBase64 + "\n");
-        fifoInWriter.flush();
+        // fifoInWriter.flush();
         CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
         // // pending.put(tag, fut);
         // transport.send(node, new PinnedClient.MessageRef(payload));
@@ -350,7 +354,8 @@ public final class KVSClient {
                                         while (running) {
                                             try {
                                                 String line = fifoOutReader.readLine();
-                                                maxInFlight.release();
+                                                // LOG.info("line: {}", line);
+                                                // maxInFlight.release();
 
                                                 // // LOG.info(
                                                 // //         "permits={}, queued={}, fair={}",

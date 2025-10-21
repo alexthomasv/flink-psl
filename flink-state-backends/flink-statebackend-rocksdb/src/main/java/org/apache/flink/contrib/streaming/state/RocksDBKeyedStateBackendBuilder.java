@@ -82,6 +82,7 @@ import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import static org.apache.flink.contrib.streaming.state.RocksDBConfigurableOptions.RESTORE_OVERLAP_FRACTION_THRESHOLD;
@@ -133,6 +134,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
     private double overlapFractionThreshold = RESTORE_OVERLAP_FRACTION_THRESHOLD.defaultValue();
     private ColumnFamilyHandle injectedDefaultColumnFamilyHandle; // for testing
     private RocksDBStateUploader injectRocksDBStateUploader; // for testing
+
+    private AtomicInteger clientSubIdGen = new AtomicInteger(1);
 
     public RocksDBKeyedStateBackendBuilder(
             String operatorIdentifier,
@@ -442,7 +445,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         try {
             Map<String, PinnedClient.Node> nodes = new LinkedHashMap<>();
             nodes.put("node1", new PinnedClient.Node(nodeHost, nodePort, "node1.pft.org"));
-            int clientSubId = new SecureRandom().nextInt();
+            int clientSubId = ((new SecureRandom().nextInt() % 4) + 4) % 4 + 1;
+            //     int clientSubId = clientSubIdGen.getAndIncrement();
             PinnedClient.NetConfig net = new PinnedClient.NetConfig(nodes);
             PinnedClient.Config pinnedClientCfg =
                     new PinnedClient.Config(
