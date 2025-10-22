@@ -421,6 +421,7 @@ public final class KVSClient implements Closeable {
 
     @Override
     public void close() throws IOException {
+        running = false;
         try {
             if (fifoIO != null) {
                 fifoIO.close();
