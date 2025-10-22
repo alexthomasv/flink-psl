@@ -461,6 +461,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             pslClient = new KVSClient(p, "node1", pslMaxOutstandingReqs);
             pslClient.setLookupRate(pslLookupRate);
             pslClient.setEnable(pslEnabled);
+
+            cancelStreamRegistryForBackend.registerCloseable(pslClient);
         } catch (Exception e) {
             throw new BackendBuildingException("Failed to initialize PSL client", e);
         }

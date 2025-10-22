@@ -44,7 +44,7 @@ public class DedupRefCountBenchmark {
 
     private static final String HDFS_OUTPUT_DIRECTORY = "hdfs:///results/";
     private static final String NORMAL_OUTPUT_DIRECTORY = "file:///home/ubuntu/flink-psl/results/";
-    static boolean useHDFS = false;
+    static boolean useHDFS = true;
 
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();

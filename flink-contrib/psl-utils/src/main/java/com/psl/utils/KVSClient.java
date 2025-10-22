@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import proto.client.Client;
 import proto.execution.Execution;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.Objects;
@@ -39,7 +40,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * and parses {@code ProtoClientReply}. This version targets a specific node (either a default node
  * provided at construction or passed per call) and does not implement redirect/backoff logic.
  */
-public final class KVSClient {
+public final class KVSClient implements Closeable {
 
     private static final Logger LOG = LoggerFactory.getLogger(KVSClient.class);
 
@@ -416,5 +417,23 @@ public final class KVSClient {
                     t.start();
                     return t;
                 });
+    }
+
+    @Override
+    public void close() throws IOException {
+        try {
+            if (fifoIO != null) {
+                fifoIO.close();
+            }
+        } catch (Exception ignore) {
+            LOG.error("Failed to close FIFO IO", ignore);
+        }
+        try {
+            if (fifoLeaseAllocator != null) {
+                fifoLeaseAllocator.close();
+            }
+        } catch (Exception ignore) {
+            LOG.error("Failed to close FIFO Lease Allocator", ignore);
+        }
     }
 }
