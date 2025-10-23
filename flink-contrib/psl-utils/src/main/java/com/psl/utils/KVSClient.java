@@ -95,7 +95,9 @@ public final class KVSClient implements Closeable {
             LOG.error("Failed to create FIFO files", e);
             throw new RuntimeException(e);
         }
-        startCheckerThread(defaultNode);
+        if (this.pslEnabled) {
+            startCheckerThread(defaultNode);
+        }
     }
 
     /**
@@ -197,6 +199,12 @@ public final class KVSClient implements Closeable {
      */
     public CompletableFuture<byte[]> put(final String node, final byte[] key, final byte[] value)
             throws IOException, InterruptedException {
+
+        CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
+
+        if (!this.pslEnabled) {
+            return fut;
+        }
         // final Execution.ProtoTransaction tx = buildWriteCrashCommitTx(key, value);
         // final Client.ProtoClientRequest req = buildRequest(tx);
         // final long tag = req.getClientTag();
@@ -214,7 +222,6 @@ public final class KVSClient implements Closeable {
         String valueBase64 = Base64.getEncoder().encodeToString(value);
         this.fifoIO.inWriter.write("W " + keyBase64 + " " + valueBase64 + "\n");
         // fifoInWriter.flush();
-        CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
         return fut;
     }
 
@@ -228,6 +235,11 @@ public final class KVSClient implements Closeable {
      */
     public CompletableFuture<byte[]> get(final String node, final byte[] key)
             throws IOException, InterruptedException {
+
+        CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
+        if (!this.pslEnabled) {
+            return fut;
+        }
         // final Execution.ProtoTransaction tx = buildReadOnReceiveTx(key);
         // final Client.ProtoClientRequest req = buildRequest(tx);
         // final byte[] payload =
@@ -240,7 +252,6 @@ public final class KVSClient implements Closeable {
         String keyBase64 = Base64.getEncoder().encodeToString(key);
         this.fifoIO.inWriter.write("R " + keyBase64 + "\n");
         // fifoInWriter.flush();
-        CompletableFuture<byte[]> fut = new CompletableFuture<byte[]>();
         // // pending.put(tag, fut);
         // transport.send(node, new PinnedClient.MessageRef(payload));
         return fut;
