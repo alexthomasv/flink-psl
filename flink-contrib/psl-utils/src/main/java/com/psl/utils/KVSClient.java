@@ -23,8 +23,13 @@ import org.slf4j.LoggerFactory;
 import proto.client.Client;
 import proto.execution.Execution;
 
+import java.io.BufferedReader;
 import java.io.Closeable;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -96,7 +101,7 @@ public final class KVSClient implements Closeable {
             throw new RuntimeException(e);
         }
         if (this.pslEnabled) {
-            startCheckerThread(defaultNode);
+            startCheckerThread(defaultNode, this.fifoLeaseAllocator.fifoOut);
         }
     }
 
@@ -336,13 +341,29 @@ public final class KVSClient implements Closeable {
         return op.getValues(0).toByteArray();
     }
 
-    private void startCheckerThread(String node) {
+    private void startCheckerThread(String node, String filePath) {
         replyLoops.computeIfAbsent(
                 node,
-                n -> {
+                (n) -> {
                     Thread t =
                             new Thread(
                                     () -> {
+                                        LOG.info("reply loop filePath: {}", filePath);
+                                        BufferedReader outReader;
+
+                                        try {
+                                            outReader =
+                                                    new BufferedReader(
+                                                            new InputStreamReader(
+                                                                    new FileInputStream(filePath),
+                                                                    StandardCharsets.UTF_8));
+                                        } catch (FileNotFoundException e) {
+                                            LOG.error(
+                                                    "Failed to open file {}: {}",
+                                                    filePath,
+                                                    e.toString());
+                                            return;
+                                        }
                                         // try {
                                         //     this.readyFor(n).acquire();
                                         // } catch (InterruptedException e) {
@@ -353,8 +374,9 @@ public final class KVSClient implements Closeable {
                                         //     return;
                                         // }
                                         while (running) {
+                                            LOG.info("reply loop running for node {}", n);
                                             try {
-                                                String line = this.fifoIO.outReader.readLine();
+                                                String line = outReader.readLine();
                                                 // LOG.info("line: {}", line);
                                                 // maxInFlight.release();
 
@@ -422,6 +444,7 @@ public final class KVSClient implements Closeable {
                                                 break;
                                             }
                                         }
+                                        LOG.info("reply loop exited for node {}", n);
                                     },
                                     "psl-reply-loop-" + n);
                     t.setDaemon(true);

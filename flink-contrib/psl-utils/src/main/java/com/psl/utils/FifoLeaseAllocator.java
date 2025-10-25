@@ -5,9 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
@@ -149,10 +147,10 @@ public final class FifoLeaseAllocator implements AutoCloseable {
 
     /** Open order for client side: open OUT (read) first, then IN (write). */
     public FifoIO openClientIO() throws Exception {
-        BufferedReader outReader =
-                new BufferedReader(
-                        new InputStreamReader(
-                                new FileInputStream(fifoOut), StandardCharsets.UTF_8));
+        BufferedReader outReader = null;
+        // new BufferedReader(
+        //         new InputStreamReader(
+        //                 new FileInputStream(fifoOut), StandardCharsets.UTF_8));
         BufferedWriter inWriter =
                 new BufferedWriter(
                         new OutputStreamWriter(
