@@ -88,7 +88,11 @@ public final class KVSClient implements Closeable {
      *     you plan to pass the node each call)
      */
     public KVSClient(
-            final PinnedClient transport, final String defaultNode, final int maxOutstanding) {
+            final PinnedClient transport,
+            final String defaultNode,
+            final int maxOutstanding,
+            final boolean pslEnabled) {
+        this.pslEnabled = pslEnabled;
         this.transport = Objects.requireNonNull(transport, "transport");
         this.transport.replyReady = this.replyReady;
         this.defaultNode = defaultNode;
@@ -96,11 +100,17 @@ public final class KVSClient implements Closeable {
         try {
             this.fifoLeaseAllocator = FifoLeaseAllocator.claim("/tmp/psl_fifo");
             this.fifoIO = fifoLeaseAllocator.openClientIO();
+            LOG.info("[KVSClient] after open client io");
         } catch (Exception e) {
-            LOG.error("Failed to create FIFO files", e);
+            LOG.error("[KVSClient] Failed to create FIFO files", e);
             throw new RuntimeException(e);
         }
+        LOG.info("[KVSClient] pslEnabled: {}", this.pslEnabled);
         if (this.pslEnabled) {
+            LOG.info(
+                    "startCheckerThread defaultNode: {}, fifoOut: {}",
+                    defaultNode,
+                    this.fifoLeaseAllocator.fifoOut);
             startCheckerThread(defaultNode, this.fifoLeaseAllocator.fifoOut);
         }
     }
@@ -147,7 +157,7 @@ public final class KVSClient implements Closeable {
      * @param transport initialized {@link PinnedClient}
      */
     public KVSClient(final PinnedClient transport) {
-        this(transport, null, 50000);
+        this(transport, null, 50000, false);
     }
 
     // -------------------------------------------------------------------------------------------------
@@ -342,6 +352,7 @@ public final class KVSClient implements Closeable {
     }
 
     private void startCheckerThread(String node, String filePath) {
+        LOG.info("startCheckerThread node: {}, filePath: {}", node, filePath);
         replyLoops.computeIfAbsent(
                 node,
                 (n) -> {
@@ -377,7 +388,7 @@ public final class KVSClient implements Closeable {
                                             LOG.info("reply loop running for node {}", n);
                                             try {
                                                 String line = outReader.readLine();
-                                                // LOG.info("line: {}", line);
+                                                LOG.info("line: {}", line);
                                                 // maxInFlight.release();
 
                                                 // // LOG.info(

@@ -458,9 +458,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             File ed25519PrivateKeyPem = new File(keyPath);
             Ed25519Auth auth = new Ed25519Auth(clientName, clientSubId, ed25519PrivateKeyPem);
             PinnedClient p = new PinnedClient(pinnedClientCfg, ssl, auth);
-            pslClient = new KVSClient(p, "node1", pslMaxOutstandingReqs);
+            pslClient = new KVSClient(p, "node1", pslMaxOutstandingReqs, pslEnabled);
             pslClient.setLookupRate(pslLookupRate);
-            pslClient.setEnable(pslEnabled);
 
             cancelStreamRegistryForBackend.registerCloseable(pslClient);
         } catch (Exception e) {
