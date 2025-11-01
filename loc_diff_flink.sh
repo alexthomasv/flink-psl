@@ -42,3 +42,6 @@ echo
 printf "Aggregate (touched lines): "
 printf "%s\n" "${NUMSTAT[@]}" \
 | awk '{A+=$1; D+=$2} END{printf("added %d + removed %d = total %d\n", A, D, A+D)}'
+
+
+cloc --include-lang=Java --quiet flink-contrib/psl-utils/src/main/java/com/psl/utils

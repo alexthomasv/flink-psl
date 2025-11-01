@@ -100,17 +100,11 @@ public final class KVSClient implements Closeable {
         try {
             this.fifoLeaseAllocator = FifoLeaseAllocator.claim("/tmp/psl_fifo");
             this.fifoIO = fifoLeaseAllocator.openClientIO();
-            LOG.info("[KVSClient] after open client io");
         } catch (Exception e) {
             LOG.error("[KVSClient] Failed to create FIFO files", e);
             throw new RuntimeException(e);
         }
-        LOG.info("[KVSClient] pslEnabled: {}", this.pslEnabled);
         if (this.pslEnabled) {
-            LOG.info(
-                    "startCheckerThread defaultNode: {}, fifoOut: {}",
-                    defaultNode,
-                    this.fifoLeaseAllocator.fifoOut);
             startCheckerThread(defaultNode, this.fifoLeaseAllocator.fifoOut);
         }
     }
@@ -304,55 +298,55 @@ public final class KVSClient implements Closeable {
                 .build();
     }
 
-    private static Execution.ProtoTransaction buildReadOnReceiveTx(final byte[] key) {
-        final Execution.ProtoTransactionOp read =
-                Execution.ProtoTransactionOp.newBuilder()
-                        .setOpType(Execution.ProtoTransactionOpType.READ)
-                        .addOperands(ByteString.copyFrom(key))
-                        .build();
-        final Execution.ProtoTransactionPhase onReceive =
-                Execution.ProtoTransactionPhase.newBuilder().addOps(read).build();
-        return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
-    }
+    // private static Execution.ProtoTransaction buildReadOnReceiveTx(final byte[] key) {
+    //     final Execution.ProtoTransactionOp read =
+    //             Execution.ProtoTransactionOp.newBuilder()
+    //                     .setOpType(Execution.ProtoTransactionOpType.READ)
+    //                     .addOperands(ByteString.copyFrom(key))
+    //                     .build();
+    //     final Execution.ProtoTransactionPhase onReceive =
+    //             Execution.ProtoTransactionPhase.newBuilder().addOps(read).build();
+    //     return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
+    // }
 
-    private static Execution.ProtoTransaction buildWriteCrashCommitTx(
-            final byte[] key, final byte[] value) {
-        final Execution.ProtoTransactionOp write =
-                Execution.ProtoTransactionOp.newBuilder()
-                        .setOpType(Execution.ProtoTransactionOpType.WRITE)
-                        .addOperands(ByteString.copyFrom(key))
-                        .addOperands(ByteString.copyFrom(value))
-                        .build();
-        final Execution.ProtoTransactionPhase onReceive =
-                Execution.ProtoTransactionPhase.newBuilder().addOps(write).build();
-        return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
-    }
+    // private static Execution.ProtoTransaction buildWriteCrashCommitTx(
+    //         final byte[] key, final byte[] value) {
+    //     final Execution.ProtoTransactionOp write =
+    //             Execution.ProtoTransactionOp.newBuilder()
+    //                     .setOpType(Execution.ProtoTransactionOpType.WRITE)
+    //                     .addOperands(ByteString.copyFrom(key))
+    //                     .addOperands(ByteString.copyFrom(value))
+    //                     .build();
+    //     final Execution.ProtoTransactionPhase onReceive =
+    //             Execution.ProtoTransactionPhase.newBuilder().addOps(write).build();
+    //     return Execution.ProtoTransaction.newBuilder().setOnReceive(onReceive).build();
+    // }
 
-    // Helper: pull first value out of the receipt; [] if none.
-    private static byte[] extractValueOrEmpty(proto.client.Client.ProtoClientReply reply) {
-        if (!reply.hasReceipt()) {
-            return new byte[0];
-        }
-        proto.client.Client.ProtoTransactionReceipt rcpt = reply.getReceipt();
+    // // Helper: pull first value out of the receipt; [] if none.
+    // private static byte[] extractValueOrEmpty(proto.client.Client.ProtoClientReply reply) {
+    //     if (!reply.hasReceipt()) {
+    //         return new byte[0];
+    //     }
+    //     proto.client.Client.ProtoTransactionReceipt rcpt = reply.getReceipt();
 
-        if (!rcpt.hasResults()) {
-            return new byte[0];
-        }
-        proto.execution.Execution.ProtoTransactionResult tr = rcpt.getResults();
+    //     if (!rcpt.hasResults()) {
+    //         return new byte[0];
+    //     }
+    //     proto.execution.Execution.ProtoTransactionResult tr = rcpt.getResults();
 
-        if (tr.getResultCount() == 0) {
-            return new byte[0];
-        }
-        proto.execution.Execution.ProtoTransactionOpResult op = tr.getResult(0);
+    //     if (tr.getResultCount() == 0) {
+    //         return new byte[0];
+    //     }
+    //     proto.execution.Execution.ProtoTransactionOpResult op = tr.getResult(0);
 
-        if (op.getValuesCount() == 0) {
-            return new byte[0];
-        }
-        return op.getValues(0).toByteArray();
-    }
+    //     if (op.getValuesCount() == 0) {
+    //         return new byte[0];
+    //     }
+    //     return op.getValues(0).toByteArray();
+    // }
 
     private void startCheckerThread(String node, String filePath) {
-        LOG.info("startCheckerThread node: {}, filePath: {}", node, filePath);
+        // LOG.info("startCheckerThread node: {}, filePath: {}", node, filePath);
         replyLoops.computeIfAbsent(
                 node,
                 (n) -> {
@@ -385,10 +379,10 @@ public final class KVSClient implements Closeable {
                                         //     return;
                                         // }
                                         while (running) {
-                                            LOG.info("reply loop running for node {}", n);
+                                            // LOG.info("reply loop running for node {}", n);
                                             try {
                                                 String line = outReader.readLine();
-                                                LOG.info("line: {}", line);
+                                                // LOG.info("line: {}", line);
                                                 // maxInFlight.release();
 
                                                 // // LOG.info(

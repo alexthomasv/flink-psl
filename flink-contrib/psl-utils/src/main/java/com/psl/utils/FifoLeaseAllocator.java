@@ -135,7 +135,6 @@ public final class FifoLeaseAllocator implements AutoCloseable {
                 LOG.info("Leased FIFO index: " + i + " with in=" + in + " out=" + out);
                 ensureIsFifo(in);
                 ensureIsFifo(out);
-                LOG.info("ensured is fifo: " + i + " with in=" + in + " out=" + out);
                 return new FifoLeaseAllocator(i, lease, in, out);
 
             } catch (FileAlreadyExistsException taken) {
@@ -152,12 +151,10 @@ public final class FifoLeaseAllocator implements AutoCloseable {
         // new BufferedReader(
         //         new InputStreamReader(
         //                 new FileInputStream(fifoOut), StandardCharsets.UTF_8));
-        LOG.info("before open client io");
         BufferedWriter inWriter =
                 new BufferedWriter(
                         new OutputStreamWriter(
                                 new FileOutputStream(fifoIn), StandardCharsets.UTF_8));
-        LOG.info("after open client io");
         return new FifoIO(inWriter, outReader);
     }
 
